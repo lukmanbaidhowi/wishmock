@@ -1,0 +1,14 @@
+version: "3.9"
+
+services:
+  grpc-server-mock:
+    build: .
+    container_name: grpc-server-mock
+    ports:
+      - "50051:50051"   # gRPC server
+      - "3000:3000"     # Admin HTTP API
+    volumes:
+      - ./protos:/app/protos
+      - ./rules:/app/rules
+      - ./uploads:/app/uploads
+    command: ["bun", "run", "start"]

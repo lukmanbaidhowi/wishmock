@@ -1,0 +1,25 @@
+match:
+  request:
+    id: { exists: true }
+responses:
+  - when:
+      request.id: "next"
+    body:
+      start:
+        seconds: 1767225600   # 2025-01-01T00:00:00Z
+        nanos: 0
+      duration:
+        seconds: 3600
+        nanos: 0
+    trailers:
+      grpc-status: "0"
+  - body:
+      start:
+        seconds: 1735689600   # 2025-01-01T00:00:00Z (example)
+        nanos: 0
+      duration:
+        seconds: 1800
+        nanos: 0
+    trailers:
+      grpc-status: "0"
+

@@ -1,0 +1,19 @@
+match:
+  request:
+    id: { exists: true }
+responses:
+  - when:
+      request.id: "next"
+    body:
+      location:
+        latitude: 40.7128
+        longitude: -74.0060
+    trailers:
+      grpc-status: "0"
+  - body:
+      location:
+        latitude: 51.5074
+        longitude: -0.1278
+    trailers:
+      grpc-status: "0"
+

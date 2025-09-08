@@ -1,0 +1,26 @@
+match:
+  request:
+    name: "Tom"
+responses:
+  - when:
+      request.name: "Tom"
+    body:
+      message: "Hi Tom (from mock)"
+    trailers:
+      grpc-status: "0"
+    delay_ms: 0
+    priority: 5
+  - when:
+      metadata.authorization:
+        regex: "^Bearer \\w+"
+        flags: "i"
+    body:
+      message: "Hi Tom (auth ok)"
+    trailers:
+      grpc-status: "0"
+    priority: 10
+  - body:
+      message: "Hello, stranger"
+    trailers:
+      grpc-status: "0"
+    priority: 0

@@ -1,0 +1,43 @@
+# VCS
+.git
+.gitignore
+.github
+
+# Dependencies and build artifacts
+node_modules
+dist
+
+# Runtime/uploads (mounted at runtime if needed)
+uploads
+
+# Tests and coverage (not needed for runtime image)
+tests
+coverage
+.nyc_output
+
+# Editor/OS
+.vscode
+.idea
+.DS_Store
+
+# AI agent tooling (local state/logs)
+.codex
+.cursor
+.aider*
+codex*.log
+
+# Compose and local files
+docker-compose.yml
+tmp
+.cache
+*.swp
+*.swo
+
+# Environment files (avoid baking secrets)
+.env
+.env.*
+
+# Dev-only scripts and docs (not needed at runtime)
+scripts
+AGENTS.md
+README.md

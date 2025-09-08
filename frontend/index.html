@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>grpc-server-mock Admin</title>
+    <link rel="stylesheet" href="/app/styles.css" />
+  </head>
+  <body>
+    <header>
+      <h1>grpc-server-mock Admin</h1>
+      <nav>
+        <a href="#status">Status</a>
+        <a href="#upload">Upload</a>
+        <a href="#services">Services</a>
+        <a href="#todo">TODO</a>
+      </nav>
+    </header>
+
+    <main>
+      <section id="status" class="card">
+        <h2>Status</h2>
+        <button id="refreshStatus">Refresh</button>
+        <div class="status-grid">
+          <div>
+            <h3>gRPC Port</h3>
+            <pre id="grpcPort">-</pre>
+          </div>
+          <div>
+            <h3>Loaded Services</h3>
+            <ul id="services"></ul>
+          </div>
+          <div>
+            <h3>Rules (stubs)</h3>
+            <ul id="rules"></ul>
+          </div>
+          <div>
+            <h3>Protos Loaded</h3>
+            <ul id="protosLoaded"></ul>
+          </div>
+          <div>
+            <h3>Protos Skipped</h3>
+            <ul id="protosSkipped"></ul>
+          </div>
+        </div>
+      </section>
+
+      <section id="upload" class="card">
+        <h2>Upload</h2>
+        <div class="upload-grid">
+          <form id="uploadProto" class="panel">
+            <h3>.proto</h3>
+            <input type="file" id="protoFile" accept=".proto" />
+            <button type="submit">Upload .proto</button>
+            <p class="hint">Saves to /protos and triggers rebuild on file change.</p>
+          </form>
+
+          <form id="uploadRule" class="panel">
+            <h3>Rule (YAML/JSON)</h3>
+            <input type="file" id="ruleFile" accept=".yaml,.yml,.json" />
+            <button type="submit">Upload rule</button>
+            <p class="hint">Saves to /rules and reloads immediately.</p>
+          </form>
+        </div>
+      </section>
+
+      <section id="services" class="card">
+        <h2>Services & Schemas</h2>
+        <div class="services-grid">
+          <div>
+            <div class="row">
+              <button id="refreshServices">Refresh Services</button>
+              <button id="expandAllServices" title="Expand all services">Expand all</button>
+              <button id="collapseAllServices" title="Collapse all services">Collapse all</button>
+              <span class="hint">Click a type to inspect schema.</span>
+            </div>
+            <div id="servicesList" class="panel"></div>
+          </div>
+          <div>
+            <h3>Schema Inspector</h3>
+            <div id="schemaPanel" class="panel">
+              <div id="schemaEmpty" class="hint">Select a request/response type on the left.</div>
+              <div id="schemaContent" style="display:none"></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="todo" class="card">
+        <h2>Roadmap / TODO</h2>
+        <ul>
+          <li>Response body templating with variables from request/metadata.</li>
+          <li>Array streaming for server streaming methods.</li>
+          <li>Create, edit, and validate rule bodies inline with schema validation.</li>
+          <li>Preview matched response given sample request and metadata.</li>
+        </ul>
+      </section>
+    </main>
+
+    <footer>
+      <small>
+        Built for grpc-server-mock admin API. Open <code>/admin/status</code> for raw JSON.
+      </small>
+    </footer>
+
+    <script src="/app/app.js" type="module"></script>
+  </body>
+  </html>

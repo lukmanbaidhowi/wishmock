@@ -1,0 +1,150 @@
+match:
+  # Optional: use request or metadata to choose a response
+  request:
+    id: { exists: true }
+responses:
+  # --- Error simulations mapped by request.id ---
+  - when:
+      request.id: "err-unauth"
+    body: {}
+    trailers:
+      grpc-status: 16            # UNAUTHENTICATED
+      grpc-message: "Missing or invalid token"
+      www-authenticate: "Bearer realm=grpc-server-mock"
+  - when:
+      request.id: "err-forbidden"
+    body: {}
+    trailers:
+      grpc-status: 7             # PERMISSION_DENIED
+      grpc-message: "Forbidden: role=user"
+  - when:
+      request.id: "err-notfound"
+    body: {}
+    trailers:
+      grpc-status: 5             # NOT_FOUND
+      grpc-message: "Event not found"
+      resource-type: "event"
+  - when:
+      request.id: "err-already-exists"
+    body: {}
+    trailers:
+      grpc-status: 6             # ALREADY_EXISTS
+      grpc-message: "Event already exists"
+  - when:
+      request.id: "err-precondition"
+    body: {}
+    trailers:
+      grpc-status: 9             # FAILED_PRECONDITION
+      grpc-message: "State=archived; cannot modify"
+  - when:
+      request.id: "err-out-of-range"
+    body: {}
+    trailers:
+      grpc-status: 11            # OUT_OF_RANGE
+      grpc-message: "Offset out of range"
+  - when:
+      request.id: "err-cancelled"
+    body: {}
+    trailers:
+      grpc-status: 1             # CANCELLED
+      grpc-message: "Request cancelled"
+  - when:
+      request.id: "err-deadline"
+    body: {}
+    delay_ms: 1500
+    trailers:
+      grpc-status: 4             # DEADLINE_EXCEEDED
+      grpc-message: "Upstream timeout"
+  - when:
+      request.id: "err-unavailable"
+    body: {}
+    trailers:
+      grpc-status: 14            # UNAVAILABLE
+      grpc-message: "Backend temporarily unavailable"
+      retry-after-ms: 2000
+  - when:
+      request.id: "err-internal"
+    body: {}
+    trailers:
+      grpc-status: 13            # INTERNAL
+      grpc-message: "Unexpected server error"
+      error-id: "E-INT-500"
+  - when:
+      request.id: "err-data-loss"
+    body: {}
+    trailers:
+      grpc-status: 15            # DATA_LOSS
+      grpc-message: "Corrupted event payload"
+  - when:
+      request.id: "err-unimplemented"
+    body: {}
+    trailers:
+      grpc-status: 12            # UNIMPLEMENTED
+      grpc-message: "Method disabled in mock"
+  - when:
+      request.id: "err-resource-exhausted"
+    body: {}
+    trailers:
+      grpc-status: 8             # RESOURCE_EXHAUSTED
+      grpc-message: "Rate limit exceeded"
+      ratelimit-reset-ms: 1000
+  - when:
+      request.id: "err-unknown"
+    body: {}
+    trailers:
+      grpc-status: 2             # UNKNOWN
+      grpc-message: "Unknown error"
+  - when:
+      request.id: "next"
+    body:
+      event:
+        id: "next"
+        title: "Next Event"
+        startTime:
+          year: 2025
+          month: 1
+          day: 1
+          hours: 9
+          minutes: 0
+          seconds: 0
+          nanos: 0
+          timeZone:
+            id: "America/New_York"
+        endTime:
+          year: 2025
+          month: 1
+          day: 1
+          hours: 10
+          minutes: 0
+          seconds: 0
+          nanos: 0
+          timeZone:
+            id: "America/New_York"
+    trailers:
+      grpc-status: "0"
+  - body:
+      event:
+        id: "default"
+        title: "Default Event"
+        startTime:
+          year: 2024
+          month: 12
+          day: 31
+          hours: 23
+          minutes: 0
+          seconds: 0
+          nanos: 0
+          timeZone:
+            id: "UTC"
+        endTime:
+          year: 2025
+          month: 1
+          day: 1
+          hours: 0
+          minutes: 0
+          seconds: 0
+          nanos: 0
+          timeZone:
+            id: "UTC"
+    trailers:
+      grpc-status: "0"

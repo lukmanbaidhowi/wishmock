@@ -1,0 +1,61 @@
+syntax = "proto3";
+
+package calendar;
+
+// Example showing third-party import from Google Type protos.
+import "google/type/datetime.proto";
+import "google/type/money.proto";
+import "google/type/latlng.proto";
+import "google/protobuf/timestamp.proto";
+import "google/protobuf/duration.proto";
+
+service Events {
+  rpc GetEvent (GetEventRequest) returns (GetEventResponse);
+  rpc GetPrice (GetPriceRequest) returns (GetPriceResponse);
+  rpc GetLocation (GetLocationRequest) returns (GetLocationResponse);
+  rpc GetSchedule (GetScheduleRequest) returns (GetScheduleResponse);
+}
+
+message GetEventRequest {
+  string id = 1;
+}
+
+message Event {
+  string id = 1;
+  string title = 2;
+  // Uses a third-party message type from google/type.
+  google.type.DateTime start_time = 3;
+  google.type.DateTime end_time = 4;
+}
+
+message GetEventResponse {
+  Event event = 1;
+}
+
+message GetPriceRequest {
+  string id = 1;
+}
+
+message GetPriceResponse {
+  // Third-party Money type
+  google.type.Money price = 1;
+}
+
+message GetLocationRequest {
+  string id = 1;
+}
+
+message GetLocationResponse {
+  // Third-party LatLng type
+  google.type.LatLng location = 1;
+}
+
+message GetScheduleRequest {
+  string id = 1;
+}
+
+message GetScheduleResponse {
+  // Mix of well-known and Google types
+  google.protobuf.Timestamp start = 1;
+  google.protobuf.Duration duration = 2;
+}

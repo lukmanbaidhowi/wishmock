@@ -1,0 +1,52 @@
+{
+  "name": "grpc-server-mock",
+  "type": "module",
+  "description": "Bun/Node gRPC mock server with protobufjs, hot reload, and rule-based responses",
+  "version": "0.1.0",
+  "license": "MIT",
+  "main": "dist/app.js",
+  "bin": {
+    "mock-grpc": "bin/mock-grpc.js",
+    "grpc-server-mock": "bin/mock-grpc.js"
+  },
+  "files": [
+    "dist/",
+    "bin/",
+    "frontend/",
+    "README.md",
+    "AGENTS.md"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "@grpc/grpc-js": "^1.10.6",
+    "chokidar": "^3.6.0",
+    "express": "^4.19.2",
+    "js-yaml": "^4.1.0",
+    "lodash.get": "^4.4.2",
+    "protobufjs": "^7.4.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.3",
+    "@types/node": "^22.7.7"
+  },
+  "scripts": {
+    "dev": "bun run start:develop",
+    "prestart": "bun run build",
+    "build": "tsc -p tsconfig.json",
+    "start": "bun dist/app.js",
+    "build:watch": "tsc -w -p tsconfig.json",
+    "start:watch": "bun --watch dist/app.js",
+    "start:develop": "bun scripts/dev.mjs",
+    "start:develop:ts": "bun --watch src/app.ts",
+    "protos:fetch": "bash scripts/fetch-third-party-protos.sh",
+    "test": "bun test",
+    "test:watch": "bun test --watch",
+    "build:node": "tsc -p tsconfig.json",
+    "start:node": "tsc -p tsconfig.json && node dist/app.js",
+    "build:watch:node": "tsc -w -p tsconfig.json",
+    "start:node:watch": "node --watch dist/app.js",
+    "prepublishOnly": "tsc -p tsconfig.json"
+  }
+}

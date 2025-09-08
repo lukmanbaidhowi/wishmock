@@ -1,0 +1,20 @@
+syntax = "proto3";
+package demo;
+
+service Matcher {
+  rpc Eval (EvalRequest) returns (EvalReply);
+}
+
+message UserInfo {
+  int32 age = 1;
+  repeated string tags = 2;
+}
+
+message EvalRequest {
+  UserInfo user = 1;
+}
+
+message EvalReply {
+  string result = 1;
+}
+

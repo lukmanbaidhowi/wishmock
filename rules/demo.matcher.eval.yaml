@@ -1,0 +1,21 @@
+match:
+  request:
+    user.age: { gte: 18 }
+responses:
+  - when:
+      metadata.role: { in: [admin, root] }
+    body:
+      result: "access granted"
+    trailers:
+      grpc-status: "0"
+  - when:
+      request.user.tags: { contains: gold }
+    body:
+      result: "vip access"
+    trailers:
+      grpc-status: "0"
+  - body:
+      result: "access denied"
+    trailers:
+      grpc-status: "0"
+

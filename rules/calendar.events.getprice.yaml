@@ -1,0 +1,20 @@
+match:
+  request:
+    id: { exists: true }
+responses:
+  - when:
+      request.id: "next"
+    body:
+      price:
+        currencyCode: "USD"
+        units: 10
+        nanos: 500000000
+    trailers:
+      grpc-status: "0"
+  - body:
+      price:
+        currencyCode: "EUR"
+        units: 5
+        nanos: 0
+    trailers:
+      grpc-status: "0"

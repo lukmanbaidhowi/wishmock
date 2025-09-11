@@ -1,4 +1,8 @@
 import * as grpc from "@grpc/grpc-js";
+import fs from "fs";
+import path from "path";
+import * as protoLoader from "@grpc/proto-loader";
+import wrapServerWithReflection from "grpc-node-server-reflection";
 import protobuf from "protobufjs";
 import type { RuleDoc } from "../domain/types.js";
 import { selectResponse } from "../domain/usecases/selectResponse.js";
@@ -77,14 +81,26 @@ export function buildHandlersFromRoot(rootNamespace: protobuf.Root, rulesIndex: 
             const respond = () => {
               if (status && status !== 0) {
                 const errObj: any = { code: status, message: msg || "mock error" };
-                if (trailing.getMap && Object.keys(trailing.getMap()).length) {
-                  errObj.metadata = trailing;
+                try {
+                  const hasMapFn = typeof (trailing as any).getMap === "function";
+                  const mapObj = hasMapFn ? (trailing as any).getMap() : {};
+                  if (mapObj && Object.keys(mapObj).length) {
+                    errObj.metadata = trailing;
+                  }
+                } catch (_) {
+                  // ignore metadata attach failures
                 }
                 callback(errObj);
               } else {
                 // Attach trailing metadata if provided
-                if (Object.keys(trailing.getMap()).length) {
-                  (call as any).setTrailer?.(trailing);
+                try {
+                  const hasMapFn = typeof (trailing as any).getMap === "function";
+                  const mapObj = hasMapFn ? (trailing as any).getMap() : {};
+                  if (mapObj && Object.keys(mapObj).length) {
+                    (call as any).setTrailer?.(trailing);
+                  }
+                } catch (_) {
+                  // ignore metadata attach failures
                 }
                 callback(null, decoded);
               }
@@ -123,39 +139,126 @@ export function buildHandlersFromRoot(rootNamespace: protobuf.Root, rulesIndex: 
   return servicesMap;
 }
 
-export async function createGrpcServer(rootNamespace: protobuf.Root, rulesIndex: RulesIndex, log: (...a: any[]) => void, err: (...a: any[]) => void) {
+export async function createGrpcServer(rootNamespace: protobuf.Root, rulesIndex: RulesIndex, log: (...a: any[]) => void, err: (...a: any[]) => void, opts?: { protoDir?: string; entryFiles?: string[] }) {
   const servicesMap = buildHandlersFromRoot(rootNamespace, rulesIndex, log, err);
-  const s = new grpc.Server();
+  // Wrap server with reflection so grpcurl can discover services without -proto
+  const s = (wrapServerWithReflection as unknown as (srv: grpc.Server) => grpc.Server)(new grpc.Server());
 
-  // Group by service to add via addService
-  const byService = new Map<string, { def: any; impl: Record<string, grpc.handleUnaryCall<any, any>> }>();
-  function lowerFirst(s: string) { return s ? s.charAt(0).toLowerCase() + s.slice(1) : s; }
+  // Load proto definitions via @grpc/proto-loader so reflection can inspect fileDescriptorProtos
+  const filesFromRoot = (rootNamespace as any).files as string[] | undefined;
+  let packageObject: any | null = null;
+  try {
+    // Load only the main proto files (not dependencies) for reflection
+    // This avoids issues with proto-loader trying to resolve all transitive deps
+    let files: string[] | undefined = undefined;
+    if (opts?.entryFiles && opts.entryFiles.length) {
+      files = opts.entryFiles.map(f => path.resolve(f));
+    } else if (opts?.protoDir) {
+      // Only load top-level proto files, not subdirectories like google/
+      const base = path.resolve(opts.protoDir);
+      const topLevelFiles = fs.readdirSync(base)
+        .filter(f => f.endsWith(".proto"))
+        .map(f => path.join(base, f));
+      files = topLevelFiles.length ? topLevelFiles : undefined;
+    } else if (filesFromRoot && filesFromRoot.length) {
+      // Filter to only main proto files, not dependencies
+      files = filesFromRoot.filter(f => {
+        const rel = opts?.protoDir ? path.relative(opts.protoDir, f) : path.basename(f);
+        return !rel.includes('/') && rel.endsWith('.proto');
+      });
+    }
 
-  for (const [, meta] of servicesMap) {
-    const fullServiceName = meta.pkg ? `${meta.pkg}.${meta.serviceName}` : meta.serviceName;
-    const key = fullServiceName;
-    if (!byService.has(key)) byService.set(key, { def: {}, impl: {} });
-    const entry = byService.get(key)!;
-    const reqType = meta.reqType;
-    const resType = meta.resType;
-    const methodKey = lowerFirst(meta.methodName);
-    const methodDef = {
-      path: `/${fullServiceName}/${meta.methodName}`,
-      requestStream: false,
-      responseStream: false,
-      originalName: meta.methodName,
-      requestSerialize: (arg: any) => reqType.encode(reqType.fromObject(arg)).finish(),
-      requestDeserialize: (buffer: Buffer) => reqType.decode(buffer),
-      responseSerialize: (arg: any) => resType.encode(resType.fromObject(arg)).finish(),
-      responseDeserialize: (buffer: Buffer) => resType.decode(buffer)
-    } as const;
-    // Register camelCase key with originalName; grpc-js resolves correctly
-    entry.def[methodKey] = methodDef;
-    entry.impl[methodKey] = meta.handler;
+    if (files && files.length) {
+      // Build include paths: protoDir as the primary include path
+      let includeDirs: string[] = [];
+      if (opts?.protoDir) {
+        const base = path.resolve(opts.protoDir);
+        includeDirs = [base];
+      }
+      
+      log(`(info) Reflection: proto-loader files: ${files.map(f => path.relative(opts?.protoDir || process.cwd(), f)).join(", ")}`);
+      log(`(info) Reflection: includeDirs: ${includeDirs.map(d => path.relative(process.cwd(), d)).join(", ")}`);
+      
+      // Load files individually to handle import resolution issues gracefully
+      const packageDefinitions: any[] = [];
+      for (const file of files) {
+        try {
+          const pkgDef = protoLoader.loadSync([file], {
+            includeDirs,
+            keepCase: true,
+            longs: String,
+            enums: String,
+            defaults: false,
+            oneofs: true,
+          });
+          packageDefinitions.push(pkgDef);
+          log(`(info) Reflection: loaded ${path.relative(opts?.protoDir || process.cwd(), file)}`);
+        } catch (e: any) {
+          log(`(warn) Reflection: failed to load ${path.relative(opts?.protoDir || process.cwd(), file)}: ${e.message}`);
+        }
+      }
+      
+      // Merge all package definitions
+      if (packageDefinitions.length > 0) {
+        const merged = Object.assign({}, ...packageDefinitions);
+        packageObject = grpc.loadPackageDefinition(merged);
+      }
+    }
+  } catch (e) {
+    // If this fails, server still works; only reflection may be limited
+    err("(warn) Failed to load package definition for reflection:", e);
   }
 
-  for (const [, { def, impl }] of byService.entries()) {
-    s.addService(def, impl as any);
+  function lowerFirst(s: string) { return s ? s.charAt(0).toLowerCase() + s.slice(1) : s; }
+
+  // Helper to get service definition object from loaded package by FQ name
+  function getServiceDef(fullServiceName: string): any | null {
+    if (!packageObject) return null;
+    const parts = fullServiceName.split(".");
+    let node: any = packageObject;
+    for (const p of parts) {
+      if (node && typeof node === "object" && p in node) node = node[p];
+      else return null;
+    }
+    // Expect a constructor/object with .service
+    if (node && (node as any).service) return (node as any).service;
+    return null;
+  }
+
+  // Group by service and build implementation maps
+  const byService = new Map<string, { impl: Record<string, grpc.handleUnaryCall<any, any>> }>();
+  for (const [, meta] of servicesMap) {
+    const fullServiceName = meta.pkg ? `${meta.pkg}.${meta.serviceName}` : meta.serviceName;
+    if (!byService.has(fullServiceName)) byService.set(fullServiceName, { impl: {} });
+    const entry = byService.get(fullServiceName)!;
+    entry.impl[lowerFirst(meta.methodName)] = meta.handler;
+  }
+
+  for (const [fullServiceName, { impl }] of byService.entries()) {
+    const serviceDef = getServiceDef(fullServiceName);
+    if (serviceDef) {
+      log(`(info) Reflection: using proto-loader def for ${fullServiceName}`);
+      s.addService(serviceDef, impl as any);
+    } else {
+      log(`(warn) Reflection: missing proto-loader def for ${fullServiceName}; using fallback definition`);
+      // Fallback: register using manual definition (no reflection metadata)
+      const def: any = {};
+      for (const [fqmn, meta] of servicesMap.entries()) {
+        const svcName = meta.pkg ? `${meta.pkg}.${meta.serviceName}` : meta.serviceName;
+        if (svcName !== fullServiceName) continue;
+        def[lowerFirst(meta.methodName)] = {
+          path: `/${svcName}/${meta.methodName}`,
+          requestStream: false,
+          responseStream: false,
+          originalName: meta.methodName,
+          requestSerialize: (arg: any) => meta.reqType.encode(meta.reqType.fromObject(arg)).finish(),
+          requestDeserialize: (buffer: Buffer) => meta.reqType.decode(buffer),
+          responseSerialize: (arg: any) => meta.resType.encode(meta.resType.fromObject(arg)).finish(),
+          responseDeserialize: (buffer: Buffer) => meta.resType.decode(buffer),
+        } as const;
+      }
+      s.addService(def, impl as any);
+    }
   }
 
   return { server: s, servicesMap } as const;

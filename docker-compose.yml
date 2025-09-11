@@ -5,10 +5,27 @@ services:
     build: .
     container_name: grpc-server-mock
     ports:
-      - "50051:50051"   # gRPC server
+      - "50050:50050"   # gRPC plaintext
+      - "50051:50051"   # gRPC TLS
       - "3000:3000"     # Admin HTTP API
     volumes:
       - ./protos:/app/protos
       - ./rules:/app/rules
       - ./uploads:/app/uploads
+      - ./certs:/app/certs
     command: ["bun", "run", "start"]
+    environment:
+      - GRPC_PORT_PLAINTEXT=50050
+      - GRPC_PORT_TLS=50051
+      - HTTP_PORT=3000
+      - GRPC_TLS_ENABLED=true
+      - GRPC_TLS_CERT_PATH=/app/certs/server.crt
+      - GRPC_TLS_KEY_PATH=/app/certs/server.key
+      - GRPC_TLS_CA_PATH=/app/certs/ca.crt
+      - GRPC_TLS_REQUIRE_CLIENT_CERT=false
+    healthcheck:
+      test: ["CMD", "bun", "bin/healthcheck.js"]
+      interval: 5s
+      timeout: 2s
+      retries: 10
+      start_period: 10s

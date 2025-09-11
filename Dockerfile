@@ -8,5 +8,10 @@ RUN bun install
 COPY . .
 RUN bun run build
 
-EXPOSE 50051 3000
+EXPOSE 50050 50051 3000
+
+# Set environment for container networking
+ENV NODE_ENV=production
+ENV HOST=0.0.0.0
+
 CMD ["bun", "run", "start"]

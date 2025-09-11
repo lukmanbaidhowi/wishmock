@@ -8,7 +8,15 @@ export function createAdminApp(params: {
   ruleDir: string;
   uploadsDir: string;
   getStatus: () => {
-    grpc_port: number | string;
+    // Back-compat: keep grpc_port while adding richer grpc_ports
+    grpc_port?: number | string;
+    grpc_ports?: {
+      plaintext: number | string;
+      tls?: number | string;
+      tls_enabled: boolean;
+      mtls?: boolean;
+      tls_error?: string | null;
+    };
     loaded_services: string[];
     rules: string[];
     protos?: {
@@ -93,6 +101,6 @@ export function createAdminApp(params: {
     res.status(200).json({ status: "ready" });
   });
 
-  app.listen(httpPort, () => console.log(`[grpc-server-mock] HTTP admin on ${httpPort}`));
+  app.listen(httpPort, '0.0.0.0', () => console.log(`[grpc-server-mock] HTTP admin on ${httpPort}`));
   return app;
 }

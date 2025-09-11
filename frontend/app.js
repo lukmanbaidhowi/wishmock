@@ -14,7 +14,23 @@ async function fetchJSON(url, opts = {}) {
 async function refreshStatus() {
   try {
     const s = await fetchJSON("/admin/status");
-    $("#grpcPort").textContent = s.grpc_port ?? "-";
+    // Ports
+    const ports = s.grpc_ports || {};
+    const plaintext = ports.plaintext ?? s.grpc_port;
+    const tlsEnabled = !!ports.tls_enabled;
+    const tlsPort = ports.tls ?? (tlsEnabled ? "(not bound)" : "-");
+    const tlsErr = ports.tls_error || null;
+
+    const elPlain = document.querySelector('#grpcPlaintextPort');
+    const elTlsEnabled = document.querySelector('#grpcTlsEnabled');
+    const elTlsPort = document.querySelector('#grpcTlsPort');
+    const elTlsErrWrap = document.querySelector('#grpcTlsErrorWrap');
+    const elTlsErr = document.querySelector('#grpcTlsError');
+    if (elPlain) elPlain.textContent = String(plaintext ?? "-");
+    if (elTlsEnabled) elTlsEnabled.textContent = tlsEnabled ? 'yes' : 'no';
+    if (elTlsPort) elTlsPort.textContent = tlsEnabled ? String(tlsPort) : '-';
+    if (elTlsErrWrap) elTlsErrWrap.style.display = tlsErr ? 'block' : 'none';
+    if (elTlsErr && tlsErr) elTlsErr.textContent = tlsErr;
     const services = $("#services");
     services.innerHTML = "";
     // Group loaded methods by service for readability
@@ -45,7 +61,7 @@ async function refreshStatus() {
       li.appendChild(details);
       services.appendChild(li);
     });
-    const rules = $("#rules");
+  const rules = $("#rules");
     rules.innerHTML = "";
     (s.rules || []).forEach((k) => {
       const li = document.createElement("li");

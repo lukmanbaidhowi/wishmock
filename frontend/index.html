@@ -23,8 +23,13 @@
         <button id="refreshStatus">Refresh</button>
         <div class="status-grid">
           <div>
-            <h3>gRPC Port</h3>
-            <pre id="grpcPort">-</pre>
+            <h3>gRPC Ports</h3>
+            <div class="panel">
+              <div>Plaintext: <code id="grpcPlaintextPort">-</code></div>
+              <div>TLS enabled: <code id="grpcTlsEnabled">-</code></div>
+              <div>TLS port: <code id="grpcTlsPort">-</code></div>
+              <div id="grpcTlsErrorWrap" style="display:none">TLS error: <span id="grpcTlsError" class="muted">-</span></div>
+            </div>
           </div>
           <div>
             <h3>Loaded Services</h3>

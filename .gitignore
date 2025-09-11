@@ -48,6 +48,10 @@ codex*.log
 # Runtime/uploads
 uploads/
 
+# Local TLS certs
+certs/
+certs/*.srl
+
 # TypeScript
 *.tsbuildinfo
 

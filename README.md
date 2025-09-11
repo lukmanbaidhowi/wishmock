@@ -55,7 +55,9 @@ bun run start:develop
   bun run start:develop:ts
 ```
 
-- gRPC server: `localhost:50051`
+- gRPC servers:
+  - Plaintext: `localhost:50050` (always on)
+  - TLS: `localhost:50051` (if enabled)
 - Admin HTTP server: `localhost:3000`
 
 Note: Requires Bun >= 1.0. The provided Dockerfile uses `oven/bun:1.2.20-alpine`.
@@ -87,23 +89,59 @@ npm run build:watch:node
 npm run start:node:watch
 ```
 
-- gRPC server: `localhost:50051`
+- gRPC servers:
+  - Plaintext: `localhost:50050`
+  - TLS: `localhost:50051` (if enabled)
 - Admin HTTP server: `localhost:3000`
 
 ### Admin UI (Web)
 - Open `http://localhost:3000/app/` to:
   - Upload `.proto` and rule files (YAML/JSON) via Admin API
-  - View status: gRPC port, loaded services, and loaded rules (stubs)
+  - View status: gRPC ports, loaded services, and loaded rules (stubs)
 - This UI is static (no build tools) and is served by Express from `frontend/`.
 
 ### Docker
+Default (plaintext only):
 ```bash
 docker compose up --build
 ```
 
-3. Test with grpcurl:
+- Exposes: gRPC plaintext on `50050`, Admin HTTP on `3000`.
+- TLS port `50051` is not exposed by default to avoid confusion.
+
+Healthcheck:
+- The container includes a healthcheck that hits `http://localhost:3000/liveness` inside the container.
+- View health: `docker ps` (look for `healthy`), or `docker inspect --format='{{json .State.Health}}' grpc-server-mock | jq .`
+
+Enable TLS by uncommenting the TLS lines in `docker-compose.yml` after generating certs:
+```bash
+# Generate certs under ./certs
+bash scripts/generate-local-certs.sh
+
+# In docker-compose.yml, uncomment the 50051 port mapping and TLS env vars
+# Then start the stack
+docker compose up --build
+```
+
+grpcurl with TLS/mTLS (Docker TLS enabled):
+```bash
+# TLS (server-auth only) — uses server cert signed by local CA
+grpcurl -d '{"name":"Tom"}' \
+  -cacert certs/ca.crt \
+  localhost:50051 helloworld.Greeter/SayHello
+
+# mTLS (client-auth) — uncomment GRPC_TLS_CA_PATH in docker-compose.yml
+# and restart the stack; then call with client cert/key
+grpcurl -d '{"name":"Tom"}' \
+  -cacert certs/ca.crt \
+  -cert certs/client.crt \
+  -key certs/client.key \
+  localhost:50051 helloworld.Greeter/SayHello
+```
+
+3. Test with grpcurl (plaintext):
    ```bash
-   grpcurl -plaintext -d '{"name":"Tom"}' localhost:50051 helloworld.Greeter/SayHello
+   grpcurl -plaintext -d '{"name":"Tom"}' localhost:50050 helloworld.Greeter/SayHello
    ```
 
 4. Hot reload:
@@ -130,13 +168,56 @@ docker compose up --build
 
 Quick tests with grpcurl (plaintext):
 ```bash
-grpcurl -plaintext -d '{"id":"err-unauth"}' localhost:50051 calendar.Events/GetEvent
-grpcurl -plaintext -d '{"id":"err-forbidden"}' localhost:50051 calendar.Events/GetEvent
-grpcurl -plaintext -d '{"id":"err-unavailable"}' localhost:50051 calendar.Events/GetEvent
-grpcurl -plaintext -d '{"id":"err-deadline"}' localhost:50051 calendar.Events/GetEvent
+grpcurl -plaintext -d '{"id":"err-unauth"}' localhost:50050 calendar.Events/GetEvent
+grpcurl -plaintext -d '{"id":"err-forbidden"}' localhost:50050 calendar.Events/GetEvent
+grpcurl -plaintext -d '{"id":"err-unavailable"}' localhost:50050 calendar.Events/GetEvent
+grpcurl -plaintext -d '{"id":"err-deadline"}' localhost:50050 calendar.Events/GetEvent
 ```
 
 Note: On Bun, file watching uses polling for stability.
+
+## TLS / mTLS
+
+Enable TLS by providing certificate paths (and optionally a CA) via environment variables. When enabled, the server listens on both plaintext and TLS ports.
+
+Environment variables:
+- `GRPC_PORT_PLAINTEXT` (default `50050`)
+- `GRPC_PORT_TLS` (default `50051`)
+- `GRPC_TLS_ENABLED` = `true|false` (optional; enabled automatically if both cert and key paths are provided)
+- `GRPC_TLS_CERT_PATH` = path to server certificate (PEM)
+- `GRPC_TLS_KEY_PATH` = path to server private key (PEM)
+- `GRPC_TLS_CA_PATH` = path to CA bundle (PEM). If provided, client certs are validated (mTLS)
+- `GRPC_TLS_REQUIRE_CLIENT_CERT` = `true|false` (defaults to true when `GRPC_TLS_CA_PATH` is set)
+
+Behavior:
+- Plaintext server always binds on `GRPC_PORT_PLAINTEXT` (exposed by default in Docker).
+- If TLS is enabled and cert/key are valid, a TLS server also binds on `GRPC_PORT_TLS`.
+- In Docker, TLS port `50051` is exposed only if you uncomment its mapping in `docker-compose.yml`.
+- If TLS is enabled but certificate loading fails, plaintext still runs; Admin status shows `tls_error`.
+
+Admin UI (`/app/`) shows:
+- Plaintext and TLS port values
+- Whether TLS is enabled and a TLS error when misconfigured
+
+### Generate Local Self-Signed Certs
+Use the helper script to create a local CA, server cert (CN=localhost), and client cert for mTLS testing:
+```bash
+bash scripts/generate-local-certs.sh
+```
+Outputs files in `./certs/` (gitignored):
+- `ca.crt` — local CA certificate
+- `server.crt`, `server.key` — server TLS cert/key (SAN includes localhost and 127.0.0.1)
+- `client.crt`, `client.key` — client certificate for mTLS testing
+
+grpcurl examples using generated certs:
+```bash
+# TLS (server-auth only)
+grpcurl -d '{"name":"Tom"}' -cacert certs/ca.crt localhost:50051 helloworld.Greeter/SayHello
+
+# mTLS (client-auth)
+grpcurl -d '{"name":"Tom"}' -cacert certs/ca.crt -cert certs/client.crt -key certs/client.key \
+  localhost:50051 helloworld.Greeter/SayHello
+```
 
 ## Example Rule (YAML)
 ```yaml
@@ -196,7 +277,7 @@ grpcurl example with Authorization header:
 ```bash
 grpcurl -plaintext \
   -H 'authorization: Bearer token123' \
-  -d '{"name":"Tom"}' localhost:50051 helloworld.Greeter/SayHello
+  -d '{"name":"Tom"}' localhost:50050 helloworld.Greeter/SayHello
 ```
 
 ### In Proto
@@ -217,7 +298,7 @@ grpcurl -plaintext \
 
 Quick test with grpcurl:
 ```bash
-grpcurl -plaintext -d '{"id":"next"}' localhost:50051 calendar.Events/GetEvent
+grpcurl -plaintext -d '{"id":"next"}' localhost:50050 calendar.Events/GetEvent
 ```
 
 ## Error Simulation (gRPC Status)

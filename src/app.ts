@@ -8,14 +8,27 @@ import { loadRules as loadRulesFromDisk } from "./infrastructure/ruleLoader.js";
 import { createGrpcServer, type HandlerMeta } from "./infrastructure/grpcServer.js";
 import { createAdminApp } from "./interfaces/httpAdmin.js";
 
-const GRPC_PORT = process.env.GRPC_PORT || 50051;
+// Ports
+const GRPC_PORT_PLAINTEXT = (process.env.GRPC_PORT_PLAINTEXT || process.env.GRPC_PORT || 50050) as any;
+const GRPC_PORT_TLS = (process.env.GRPC_PORT_TLS || 50051) as any;
+// TLS config
+const TLS_ENABLED_ENV = String(process.env.GRPC_TLS_ENABLED || "").toLowerCase();
+const TLS_ENABLED = TLS_ENABLED_ENV === "true" || TLS_ENABLED_ENV === "1";
+const TLS_CERT_PATH = process.env.GRPC_TLS_CERT_PATH || "";
+const TLS_KEY_PATH = process.env.GRPC_TLS_KEY_PATH || "";
+const TLS_CA_PATH = process.env.GRPC_TLS_CA_PATH || ""; // if provided, can enable mTLS
+const TLS_REQUIRE_CLIENT_CERT = String(process.env.GRPC_TLS_REQUIRE_CLIENT_CERT || "").toLowerCase();
 const HTTP_PORT = process.env.HTTP_PORT || 3000;
 const PROTO_DIR = path.resolve("protos");
 const RULE_DIR = path.resolve("rules");
 const UPLOAD_DIR = path.resolve("uploads");
 
 // ----- state -----
-let server: grpc.Server | null = null;
+let serverPlain: grpc.Server | null = null;
+let serverTls: grpc.Server | null = null;
+let tlsEnabled: boolean = false;
+let tlsMtls: boolean = false;
+let tlsError: string | null = null;
 let servicesKeys: string[] = [];
 let servicesMeta: Map<string, HandlerMeta> = new Map();
 let currentRoot: protobuf.Root | null = null;
@@ -27,21 +40,63 @@ const log = (...a: any[]) => console.log("[grpc-server-mock]", ...a);
 const err = (...a: any[]) => console.error("[grpc-server-mock]", ...a);
 
 async function startGrpc(rootNamespace: protobuf.Root) {
-  if (server) {
-    await new Promise<void>((resolve, reject) => server!.tryShutdown((e?: Error) => (e ? reject(e) : resolve())));
-    server = null;
-  }
-  const { server: s, servicesMap } = await createGrpcServer(rootNamespace, rulesIndex, log, err);
+  // Shutdown existing servers if any
+  const shutdown = async (srv: grpc.Server | null) => srv ? new Promise<void>((resolve, reject) => srv.tryShutdown((e?: Error) => (e ? reject(e) : resolve()))) : Promise.resolve();
+  await shutdown(serverPlain);
+  await shutdown(serverTls);
+  serverPlain = null;
+  serverTls = null;
+
+  // Build a server instance (handlers) once to capture services meta
+  const entryFiles = protoReport.filter(r => r.status === "loaded").map(r => path.join(PROTO_DIR, r.file));
+  const { server: s1, servicesMap } = await createGrpcServer(rootNamespace, rulesIndex, log, err, { protoDir: PROTO_DIR, entryFiles });
   servicesMeta = servicesMap;
   servicesKeys = [...servicesMap.keys()];
+
+  // Always start plaintext
   await new Promise<void>((resolve, reject) => {
-    s.bindAsync(`0.0.0.0:${GRPC_PORT}`, grpc.ServerCredentials.createInsecure(), (e) => {
+    s1.bindAsync(`0.0.0.0:${GRPC_PORT_PLAINTEXT}`, grpc.ServerCredentials.createInsecure(), (e?: Error | null) => {
       if (e) return reject(e);
-      log(`gRPC listening on ${GRPC_PORT}`);
+      log(`gRPC (plaintext) listening on ${GRPC_PORT_PLAINTEXT}`);
       resolve();
     });
   });
-  server = s;
+  serverPlain = s1;
+
+  // TLS setup if enabled/requested and cert/key are present
+  tlsEnabled = false;
+  tlsMtls = false;
+  tlsError = null;
+  const shouldEnableTls = TLS_ENABLED || (!!TLS_CERT_PATH && !!TLS_KEY_PATH);
+  if (shouldEnableTls) {
+    try {
+      const key = fs.readFileSync(TLS_KEY_PATH);
+      const cert = fs.readFileSync(TLS_CERT_PATH);
+      const rootCerts = TLS_CA_PATH ? fs.readFileSync(TLS_CA_PATH) : null;
+      // Decide mTLS requirement: default is NO client certs required.
+      // Only require client certs when explicitly requested via env.
+      let requireClientCert = false;
+      if (TLS_REQUIRE_CLIENT_CERT === "true" || TLS_REQUIRE_CLIENT_CERT === "1") requireClientCert = true;
+      if (TLS_REQUIRE_CLIENT_CERT === "false" || TLS_REQUIRE_CLIENT_CERT === "0") requireClientCert = false;
+      const creds = grpc.ServerCredentials.createSsl(rootCerts, [{ private_key: key, cert_chain: cert }], requireClientCert);
+      // Build separate secure server with the same handlers
+      const entryFiles2 = protoReport.filter(r => r.status === "loaded").map(r => path.join(PROTO_DIR, r.file));
+      const { server: s2 } = await createGrpcServer(rootNamespace, rulesIndex, log, err, { protoDir: PROTO_DIR, entryFiles: entryFiles2 });
+      await new Promise<void>((resolve, reject) => {
+        s2.bindAsync(`0.0.0.0:${GRPC_PORT_TLS}`, creds, (e?: Error | null) => {
+          if (e) return reject(e);
+          log(`gRPC (TLS${requireClientCert ? ", mTLS" : ""}) listening on ${GRPC_PORT_TLS}`);
+          resolve();
+        });
+      });
+      serverTls = s2;
+      tlsEnabled = true;
+      tlsMtls = !!requireClientCert;
+    } catch (e: any) {
+      tlsError = e?.message || String(e);
+      err("TLS server failed to start; continuing with plaintext only:", tlsError);
+    }
+  }
 }
 
 async function rebuild(reason: string) {
@@ -71,6 +126,10 @@ function reloadRules() {
 
 // --- initial boot ---
 (async () => {
+  // Prevent unexpected crashes from unhandled errors
+  process.on('uncaughtException', (e) => err('Uncaught exception', e));
+  process.on('unhandledRejection', (r) => err('Unhandled rejection', r));
+
   if (!fs.existsSync(PROTO_DIR)) fs.mkdirSync(PROTO_DIR, { recursive: true });
   if (!fs.existsSync(RULE_DIR)) fs.mkdirSync(RULE_DIR, { recursive: true });
   if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true });
@@ -105,7 +164,15 @@ function reloadRules() {
     ruleDir: RULE_DIR,
     uploadsDir: UPLOAD_DIR,
     getStatus: () => ({
-      grpc_port: GRPC_PORT,
+      // Back-compat key; show plaintext port
+      grpc_port: GRPC_PORT_PLAINTEXT,
+      grpc_ports: {
+        plaintext: GRPC_PORT_PLAINTEXT,
+        tls: tlsEnabled ? GRPC_PORT_TLS : undefined,
+        tls_enabled: tlsEnabled,
+        mtls: tlsMtls || undefined,
+        tls_error: tlsError,
+      },
       loaded_services: servicesKeys,
       rules: [...rulesIndex.keys()],
       protos: {

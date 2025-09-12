@@ -1,0 +1,28 @@
+# Additional examples for error handling in streaming
+match:
+  request:
+    user_id: { exists: true }
+responses:
+  # Simulate timeout/deadline exceeded
+  - when:
+      request.user_id: "timeout_user"
+    trailers:
+      grpc-status: "4"  # DEADLINE_EXCEEDED
+      grpc-message: "Request timeout while streaming messages"
+    priority: 20
+
+  # Simulate permission denied
+  - when:
+      request.user_id: "forbidden_user"
+    trailers:
+      grpc-status: "7"  # PERMISSION_DENIED
+      grpc-message: "Access denied for user"
+    priority: 20
+
+  # Simulate resource exhausted (rate limit)
+  - when:
+      request.user_id: "rate_limited_user"
+    trailers:
+      grpc-status: "8"  # RESOURCE_EXHAUSTED
+      grpc-message: "Rate limit exceeded"
+    priority: 20

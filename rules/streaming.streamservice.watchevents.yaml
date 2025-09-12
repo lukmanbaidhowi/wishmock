@@ -1,0 +1,123 @@
+match:
+  request:
+    topic: { exists: true }
+responses:
+  # Stream events for "orders" topic
+  - when:
+      request.topic: "orders"
+    stream_items:
+      - event_id: "evt_001"
+        event_type: "order.created"
+        data: '{"order_id": "ord_123", "amount": 99.99}'
+        created_at: 1640995200
+      - event_id: "evt_002"
+        event_type: "order.paid"
+        data: '{"order_id": "ord_123", "payment_method": "card"}'
+        created_at: 1640995260
+      - event_id: "evt_003"
+        event_type: "order.shipped"
+        data: '{"order_id": "ord_123", "tracking": "TRK123"}'
+        created_at: 1640995320
+      - event_id: "evt_004"
+        event_type: "order.delivered"
+        data: '{"order_id": "ord_123", "delivered_at": "2024-01-01T10:00:00Z"}'
+        created_at: 1640995380
+    stream_delay_ms: 1000
+    trailers:
+      grpc-status: "0"
+    priority: 10
+
+  # Stream events for "users" topic with filters
+  - when:
+      request.topic: "users"
+      request.filters: { contains: "premium" }
+    stream_items:
+      - event_id: "evt_101"
+        event_type: "user.upgraded"
+        data: '{"user_id": "usr_456", "plan": "premium"}'
+        created_at: 1640995200
+      - event_id: "evt_102"
+        event_type: "user.feature_enabled"
+        data: '{"user_id": "usr_456", "feature": "advanced_analytics"}'
+        created_at: 1640995260
+    stream_delay_ms: 750
+    trailers:
+      grpc-status: "0"
+    priority: 8
+
+  # Fast streaming for "notifications" topic
+  - when:
+      request.topic: "notifications"
+    stream_items:
+      - event_id: "notif_001"
+        event_type: "notification.sent"
+        data: '{"recipient": "user@example.com", "type": "email"}'
+        created_at: 1640995200
+      - event_id: "notif_002"
+        event_type: "notification.delivered"
+        data: '{"recipient": "user@example.com", "status": "delivered"}'
+        created_at: 1640995205
+      - event_id: "notif_003"
+        event_type: "notification.read"
+        data: '{"recipient": "user@example.com", "read_at": "2024-01-01T10:01:00Z"}'
+        created_at: 1640995210
+    stream_delay_ms: 50
+    trailers:
+      grpc-status: "0"
+    priority: 5
+
+  # Live monitoring with random events
+  - when:
+      request.topic: "live_monitoring"
+    stream_items:
+      - event_id: "cpu_001"
+        event_type: "system.cpu"
+        data: '{"usage": 45.2, "cores": 8}'
+        created_at: 1640995200
+      - event_id: "mem_001"
+        event_type: "system.memory"
+        data: '{"used": "4.2GB", "total": "16GB"}'
+        created_at: 1640995260
+      - event_id: "disk_001"
+        event_type: "system.disk"
+        data: '{"used": "120GB", "free": "380GB"}'
+        created_at: 1640995320
+      - event_id: "net_001"
+        event_type: "system.network"
+        data: '{"rx": "1.2MB/s", "tx": "0.8MB/s"}'
+        created_at: 1640995380
+    stream_delay_ms: 3000
+    stream_loop: true
+    stream_random_order: true
+    trailers:
+      grpc-status: "0"
+    priority: 12
+
+  # Continuous alerts (fixed order)
+  - when:
+      request.topic: "alerts"
+    stream_items:
+      - event_id: "alert_001"
+        event_type: "alert.warning"
+        data: '{"level": "warning", "message": "High CPU usage detected"}'
+        created_at: 1640995200
+      - event_id: "alert_002"
+        event_type: "alert.info"
+        data: '{"level": "info", "message": "System backup completed"}'
+        created_at: 1640995260
+    stream_delay_ms: 5000
+    stream_loop: true
+    trailers:
+      grpc-status: "0"
+    priority: 11
+
+  # Default fallback - generic events
+  - stream_items:
+      - event_id: "generic_001"
+        event_type: "system.heartbeat"
+        data: '{"status": "ok", "timestamp": "2024-01-01T10:00:00Z"}'
+        created_at: 1640995200
+    stream_delay_ms: 2000
+    trailers:
+      grpc-status: "0"
+    priority: 0

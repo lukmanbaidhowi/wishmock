@@ -5,13 +5,16 @@ It allows you to load `.proto` files directly (no conversion needed) and define 
 Supports hot reload for both proto files and rules.
 
 ## Features
-- Load `.proto` files directly using protobufjs
-- Hot reload proto (soft restart server when proto changes)
-- Hot reload rules (no restart needed)
-- Match request fields & metadata for conditional responses
-- Define responses in YAML/JSON rules
-- Advanced operators for matching (regex, contains, in, exists, numeric)
-- Priority-aware selection: among matched responses, the highest numeric `priority` wins (default 0; order as tiebreaker). Fallbacks (no `when`) also respect priority.
+- **Proto Loading** - Load `.proto` files directly using protobufjs
+- **Hot Reload** - Proto files (soft restart) and rules (no restart needed)
+- **Request Matching** - Match request fields & metadata for conditional responses
+- **YAML/JSON Rules** - Define responses in YAML/JSON rules
+- **Advanced Operators** - Regex, contains, in, exists, numeric matching
+- **Priority Selection** - Highest numeric `priority` wins (default 0; order as tiebreaker)
+- **gRPC Reflection** - Auto-discovery of services without `.proto` files
+- **TLS/mTLS Support** - Secure connections with client certificate validation
+- **Server Streaming** - Stream multiple responses with configurable delays
+- **Infinite Loop Streaming** - Continuous streaming with random order support
 
 ## Project Structure
 ```
@@ -338,8 +341,102 @@ grpcurl -plaintext -d '{"id":"next"}' localhost:50050 calendar.Events/GetEvent
   ```
   Focus of unit tests: pure domain use cases like `src/domain/usecases/selectResponse.ts`.
 
+## Server Streaming Support
+
+The server now supports gRPC server streaming methods using `stream_items` in rule responses.
+
+### Stream Configuration
+- `stream_items`: Array of response objects to stream sequentially
+- `stream_delay_ms`: Delay between stream items in milliseconds (default: 100ms)
+- `stream_loop`: Loop stream_items forever while connection is alive (default: false)
+- `stream_random_order`: Randomize order of stream_items in each loop iteration (default: false)
+- If `stream_items` is not provided, falls back to single `body` response
+
+### Example Proto (Server Streaming)
+```proto
+service StreamService {
+  rpc GetMessages (MessageRequest) returns (stream MessageResponse);
+}
+```
+
+### Example Rule (Server Streaming)
+```yaml
+match:
+  request:
+    user_id: "user123"
+responses:
+  - when:
+      request.user_id: "user123"
+    stream_items:
+      - id: "msg1"
+        content: "Hello!"
+        timestamp: 1640995200
+      - id: "msg2"
+        content: "How are you?"
+        timestamp: 1640995260
+    stream_delay_ms: 500
+    trailers:
+      grpc-status: "0"
+```
+
+### Infinite Loop Streaming
+```yaml
+# Loop forever with random order
+responses:
+  - when:
+      request.user_id: "live_user"
+    stream_items:
+      - id: "msg1"
+        content: "Message 1"
+      - id: "msg2" 
+        content: "Message 2"
+      - id: "msg3"
+        content: "Message 3"
+    stream_delay_ms: 1000
+    stream_loop: true
+    stream_random_order: true
+    trailers:
+      grpc-status: "0"
+```
+
+### Error Handling in Streaming
+For streaming methods, errors are handled the same way as unary methods:
+- Set `trailers.grpc-status` to a non-zero code
+- Optional `trailers.grpc-message` for error details
+- When an error status is set, no stream items are sent
+
+```yaml
+# Error example for streaming
+responses:
+  - when:
+      request.user_id: "forbidden_user"
+    trailers:
+      grpc-status: "7"  # PERMISSION_DENIED
+      grpc-message: "Access denied"
+```
+
+### Testing Server Streaming
+```bash
+# Test streaming messages
+grpcurl -plaintext -d '{"user_id":"user123"}' localhost:50050 streaming.StreamService/GetMessages
+
+# Test streaming events
+grpcurl -plaintext -d '{"topic":"orders"}' localhost:50050 streaming.StreamService/WatchEvents
+
+# Test with limit parameter
+grpcurl -plaintext -d '{"user_id":"test","limit":2}' localhost:50050 streaming.StreamService/GetMessages
+
+# Test error cases
+grpcurl -plaintext -d '{"user_id":"error_user"}' localhost:50050 streaming.StreamService/GetMessages
+
+# Test infinite loop with random order (Ctrl+C to stop)
+grpcurl -plaintext -d '{"user_id":"live_user"}' localhost:50050 streaming.StreamService/GetMessages
+
+# Test live monitoring events (Ctrl+C to stop)
+grpcurl -plaintext -d '{"topic":"live_monitoring"}' localhost:50050 streaming.StreamService/WatchEvents
+```
+
 ## Roadmap
 - Response body templating with variables from request/metadata.
-- Array streaming for server streaming methods.
 - Create, edit, and validate rule bodies inline with schema validation.
 - Preview matched response given sample request and metadata.

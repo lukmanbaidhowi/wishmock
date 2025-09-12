@@ -13,10 +13,11 @@ export interface HandlerMeta {
   pkg: string;
   serviceName: string;
   methodName: string;
-  handler: grpc.handleUnaryCall<any, any>;
+  handler: grpc.handleUnaryCall<any, any> | grpc.handleServerStreamingCall<any, any>;
   reqType: protobuf.Type;
   resType: protobuf.Type;
   ruleKey: string;
+  isServerStreaming?: boolean;
 }
 
 export function buildHandlersFromRoot(rootNamespace: protobuf.Root, rulesIndex: RulesIndex, log: (...a: any[]) => void, err: (...a: any[]) => void): Map<string, HandlerMeta> {
@@ -41,8 +42,8 @@ export function buildHandlersFromRoot(rootNamespace: protobuf.Root, rulesIndex: 
       const serviceName = ns.name || "Service";
       const fqService = packagePath ? `${packagePath}.${serviceName}` : serviceName;
       for (const [methodName, m] of Object.entries(ns.methods)) {
-        if (m.requestStream || m.responseStream) {
-          log(`(info) Skipping streaming method ${fqService}/${methodName}`);
+        if (m.requestStream) {
+          log(`(info) Skipping client/bidirectional streaming method ${fqService}/${methodName}`);
           continue;
         }
         const fqmn = `${fqService}/${methodName}`;
@@ -51,8 +52,67 @@ export function buildHandlersFromRoot(rootNamespace: protobuf.Root, rulesIndex: 
         const resFqn = normalizeTypeName(m.responseType, packagePath);
         const reqType = rootNamespace.lookupType(reqFqn);
         const resType = rootNamespace.lookupType(resFqn);
+        const isServerStreaming = !!m.responseStream;
 
-        const handler: grpc.handleUnaryCall<any, any> = async (call, callback) => {
+        const handler: grpc.handleUnaryCall<any, any> | grpc.handleServerStreamingCall<any, any> = isServerStreaming
+          ? async (call: grpc.ServerWritableStream<any, any>) => {
+              try {
+                const reqObj = call.request as unknown;
+                const md: Record<string, unknown> = {};
+                (call.metadata as any).getMap && Object.assign(md, (call.metadata as any).getMap());
+
+                const rule = rulesIndex.get(ruleKey);
+                const selected = selectResponse(rule, reqObj, md);
+                
+                const streamItems = selected?.stream_items || [selected?.body || {}];
+                const streamDelay = selected?.stream_delay_ms || 100;
+                const trailers = (selected?.trailers ?? {}) as Record<string, string | number | boolean>;
+                const statusRaw = trailers["grpc-status"];
+                const status = typeof statusRaw === "number" ? statusRaw : Number(statusRaw ?? 0);
+                const msg = String((trailers as any)["grpc-message"] ?? "");
+
+                if (status && status !== 0) {
+                  call.emit('error', { code: status, message: msg || "mock error" });
+                  return;
+                }
+
+                const sendItems = async () => {
+                  const shouldLoop = selected?.stream_loop || false;
+                  const randomOrder = selected?.stream_random_order || false;
+                  
+                  do {
+                    const items = randomOrder ? [...streamItems].sort(() => Math.random() - 0.5) : streamItems;
+                    
+                    for (let i = 0; i < items.length; i++) {
+                      if (call.destroyed || call.cancelled) return;
+                      
+                      const item = items[i];
+                      const message = resType.fromObject(item as any);
+                      const buffer = resType.encode(message).finish();
+                      const decoded = resType.decode(buffer);
+                      
+                      call.write(decoded);
+                      
+                      if (i < items.length - 1 || shouldLoop) {
+                        await new Promise(resolve => setTimeout(resolve, streamDelay));
+                      }
+                    }
+                  } while (shouldLoop && !call.destroyed && !call.cancelled);
+                  
+                  if (!call.destroyed) call.end();
+                };
+
+                if (selected?.delay_ms) {
+                  setTimeout(sendItems, selected.delay_ms);
+                } else {
+                  sendItems();
+                }
+              } catch (e: any) {
+                err("streaming handler error", e);
+                call.emit('error', { code: grpc.status.INTERNAL, message: e?.message || "mock streaming handler error" });
+              }
+            }
+          : async (call, callback) => {
           try {
             const reqObj = call.request as unknown;
             const md: Record<string, unknown> = {};
@@ -115,7 +175,7 @@ export function buildHandlersFromRoot(rootNamespace: protobuf.Root, rulesIndex: 
         };
 
         const pkg = packagePath;
-        servicesMap.set(fqmn, { pkg, serviceName, methodName, handler, reqType, resType, ruleKey });
+        servicesMap.set(fqmn, { pkg, serviceName, methodName, handler, reqType, resType, ruleKey, isServerStreaming });
       }
     }
     if (ns.nested) {
@@ -226,7 +286,7 @@ export async function createGrpcServer(rootNamespace: protobuf.Root, rulesIndex:
   }
 
   // Group by service and build implementation maps
-  const byService = new Map<string, { impl: Record<string, grpc.handleUnaryCall<any, any>> }>();
+  const byService = new Map<string, { impl: Record<string, grpc.handleUnaryCall<any, any> | grpc.handleServerStreamingCall<any, any>> }>();
   for (const [, meta] of servicesMap) {
     const fullServiceName = meta.pkg ? `${meta.pkg}.${meta.serviceName}` : meta.serviceName;
     if (!byService.has(fullServiceName)) byService.set(fullServiceName, { impl: {} });
@@ -249,7 +309,7 @@ export async function createGrpcServer(rootNamespace: protobuf.Root, rulesIndex:
         def[lowerFirst(meta.methodName)] = {
           path: `/${svcName}/${meta.methodName}`,
           requestStream: false,
-          responseStream: false,
+          responseStream: !!meta.isServerStreaming,
           originalName: meta.methodName,
           requestSerialize: (arg: any) => meta.reqType.encode(meta.reqType.fromObject(arg)).finish(),
           requestDeserialize: (buffer: Buffer) => meta.reqType.decode(buffer),

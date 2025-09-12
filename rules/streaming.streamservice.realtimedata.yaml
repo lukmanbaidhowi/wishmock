@@ -1,0 +1,53 @@
+# Real-time data streaming examples
+match:
+  request:
+    topic: { exists: true }
+responses:
+  # Stock price updates (random order, fast updates)
+  - when:
+      request.topic: "stock_prices"
+    stream_items:
+      - event_id: "AAPL_001"
+        event_type: "price.update"
+        data: '{"symbol": "AAPL", "price": 150.25, "change": "+1.25"}'
+        created_at: 1640995200
+      - event_id: "GOOGL_001"
+        event_type: "price.update"
+        data: '{"symbol": "GOOGL", "price": 2750.80, "change": "-5.20"}'
+        created_at: 1640995260
+      - event_id: "TSLA_001"
+        event_type: "price.update"
+        data: '{"symbol": "TSLA", "price": 890.45, "change": "+12.30"}'
+        created_at: 1640995320
+      - event_id: "MSFT_001"
+        event_type: "price.update"
+        data: '{"symbol": "MSFT", "price": 310.15, "change": "+2.85"}'
+        created_at: 1640995380
+    stream_delay_ms: 500
+    stream_loop: true
+    stream_random_order: true
+    trailers:
+      grpc-status: "0"
+    priority: 15
+
+  # IoT sensor data (fixed sequence, slow updates)
+  - when:
+      request.topic: "iot_sensors"
+    stream_items:
+      - event_id: "temp_001"
+        event_type: "sensor.temperature"
+        data: '{"sensor_id": "temp_01", "value": 23.5, "unit": "celsius"}'
+        created_at: 1640995200
+      - event_id: "humid_001"
+        event_type: "sensor.humidity"
+        data: '{"sensor_id": "humid_01", "value": 65.2, "unit": "percent"}'
+        created_at: 1640995260
+      - event_id: "pressure_001"
+        event_type: "sensor.pressure"
+        data: '{"sensor_id": "press_01", "value": 1013.25, "unit": "hPa"}'
+        created_at: 1640995320
+    stream_delay_ms: 2000
+    stream_loop: true
+    trailers:
+      grpc-status: "0"
+    priority: 10

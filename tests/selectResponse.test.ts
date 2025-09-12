@@ -152,3 +152,104 @@ describe("selectResponse", () => {
     expect(res2.body).toEqual({ fb: 4 });
   });
 });
+  it("supports exists operator", () => {
+    const rule: RuleDoc = {
+      match: { request: { "user.id": { exists: true } as any } },
+      responses: [
+        { when: { "request.optional": { exists: false } as any }, body: { hasOptional: false }, trailers: { "grpc-status": "0" } },
+        { body: { hasOptional: true }, trailers: { "grpc-status": "0" } },
+      ],
+    } as any;
+    const res = selectResponse(rule, { user: { id: 123 } }, {});
+    expect(res.body).toEqual({ hasOptional: false });
+  });
+
+  it("supports not operator", () => {
+    const rule: RuleDoc = {
+      match: { request: { name: { not: { eq: "blocked" } } as any } },
+      responses: [
+        { when: { "request.name": { not: { contains: "test" } } as any }, body: { allowed: true }, trailers: { "grpc-status": "0" } },
+        { body: { allowed: false }, trailers: { "grpc-status": "0" } },
+      ],
+    } as any;
+    const res = selectResponse(rule, { name: "user" }, {});
+    expect(res.body).toEqual({ allowed: true });
+  });
+
+  it("handles regex with invalid pattern gracefully", () => {
+    const rule: RuleDoc = {
+      match: { request: { name: { regex: "[invalid" } as any } },
+      responses: [{ body: { message: "fallback" }, trailers: { "grpc-status": "0" } }],
+    } as any;
+    const res = selectResponse(rule, { name: "test" }, {});
+    expect(res.body).toEqual({ message: "fallback" });
+  });
+
+  it("supports eq and ne operators", () => {
+    const rule: RuleDoc = {
+      match: { request: { status: { ne: "disabled" } as any } },
+      responses: [
+        { when: { "request.type": { eq: "premium" } as any }, body: { tier: "gold" }, trailers: { "grpc-status": "0" } },
+        { body: { tier: "standard" }, trailers: { "grpc-status": "0" } },
+      ],
+    } as any;
+    const res1 = selectResponse(rule, { status: "active", type: "premium" }, {});
+    expect(res1.body).toEqual({ tier: "gold" });
+    
+    const res2 = selectResponse(rule, { status: "active", type: "basic" }, {});
+    expect(res2.body).toEqual({ tier: "standard" });
+  });
+
+  it("handles numeric comparisons with undefined values", () => {
+    const rule: RuleDoc = {
+      match: { request: { age: { gt: "invalid" } as any } },
+      responses: [{ body: { message: "fallback" }, trailers: { "grpc-status": "0" } }],
+    } as any;
+    const res = selectResponse(rule, { age: 25 }, {});
+    expect(res.body).toEqual({ message: "fallback" });
+  });
+
+  it("handles unknown operator objects by falling back to string equality", () => {
+    const rule: RuleDoc = {
+      match: { request: { name: { unknownOp: "value" } as any } },
+      responses: [{ body: { message: "matched" }, trailers: { "grpc-status": "0" } }],
+    } as any;
+    const res = selectResponse(rule, { name: "[object Object]" }, {});
+    expect(res.body).toEqual({ message: "matched" });
+  });
+
+  it("returns first option when pickHighestPriority has no best match", () => {
+    const rule: RuleDoc = {
+      match: { request: { type: "test" } },
+      responses: [],
+    };
+    const res = selectResponse(rule, { type: "test" }, {});
+    expect(res.body).toEqual({});
+    expect(res.trailers).toEqual({ "grpc-status": "0" });
+  });
+  it("covers all numeric comparison branches", () => {
+    // Test lt operator with valid numbers
+    const rule1: RuleDoc = {
+      match: { request: { age: { lt: 18 } as any } },
+      responses: [{ body: { minor: true }, trailers: { "grpc-status": "0" } }],
+    } as any;
+    const res1 = selectResponse(rule1, { age: 16 }, {});
+    expect(res1.body).toEqual({ minor: true });
+
+    // Test lte operator with valid numbers  
+    const rule2: RuleDoc = {
+      match: { request: { score: { lte: 100 } as any } },
+      responses: [{ body: { valid: true }, trailers: { "grpc-status": "0" } }],
+    } as any;
+    const res2 = selectResponse(rule2, { score: 100 }, {});
+    expect(res2.body).toEqual({ valid: true });
+  });
+
+  it("handles 'in' operator with non-array value", () => {
+    const rule: RuleDoc = {
+      match: { request: { role: { in: "not-an-array" } as any } },
+      responses: [{ body: { message: "fallback" }, trailers: { "grpc-status": "0" } }],
+    } as any;
+    const res = selectResponse(rule, { role: "admin" }, {});
+    expect(res.body).toEqual({ message: "fallback" });
+  });

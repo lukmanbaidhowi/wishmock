@@ -29,3 +29,12 @@ services:
       timeout: 2s
       retries: 10
       start_period: 10s
+    networks:
+        - grpc-mock-net
+
+networks:
+  grpc-mock-net:
+      driver: bridge
+      ipam:
+        config:
+          - subnet: 172.31.200.0/24

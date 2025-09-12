@@ -1,26 +1,38 @@
-match:
-  request:
-    name: "Tom"
+# No top-level match to allow all requests
 responses:
   - when:
-      request.name: "Tom"
+      request.name: "template"
     body:
-      message: "Hi Tom (from mock)"
+      message: "Hello {{request.name}}! Current time: {{utils.now()}}. Your ID: {{utils.uuid()}}"
+      timestamp: "{{utils.now()}}"
+      user_info:
+        name: "{{request.name}}"
+        greeting: "Welcome {{request.name}}"
+        random_number: "{{utils.random(1, 100)}}"
     trailers:
       grpc-status: "0"
-    delay_ms: 0
-    priority: 5
+    priority: 30
+  
   - when:
-      metadata.authorization:
-        regex: "^Bearer \\w+"
-        flags: "i"
+      request.name: "metadata"
     body:
-      message: "Hi Tom (auth ok)"
+      message: "Hello {{request.name}}! Auth: {{metadata.authorization}}"
+      user_agent: "{{metadata.user-agent}}"
+      custom_header: "{{metadata.x-custom-header}}"
+    trailers:
+      grpc-status: "0"
+    priority: 15
+  
+  - when:
+      request.name: "format"
+    body:
+      message: "{{utils.format('Hello %s, you are user #%s', request.name, utils.random(1000, 9999))}}"
     trailers:
       grpc-status: "0"
     priority: 10
+  
   - body:
-      message: "Hello, stranger"
+      message: "Hello {{request.name}}!"
     trailers:
       grpc-status: "0"
     priority: 0

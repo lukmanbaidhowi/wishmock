@@ -86,7 +86,10 @@ export function buildHandlersFromRoot(rootNamespace: protobuf.Root, rulesIndex: 
                     for (let i = 0; i < items.length; i++) {
                       if (call.destroyed || call.cancelled) return;
                       
-                      const item = items[i];
+                      // Apply templating for each stream item with its index
+                      const templatedSelected = selectResponse(rule, reqObj, md, i, items.length);
+                      const item = templatedSelected?.stream_items?.[i] || templatedSelected?.body || items[i];
+                      
                       const message = resType.fromObject(item as any);
                       const buffer = resType.encode(message).finish();
                       const decoded = resType.decode(buffer);

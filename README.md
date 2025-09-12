@@ -450,7 +450,84 @@ grpcurl -plaintext -d '{"topic":"live_monitoring"}' localhost:50050 streaming.St
 
 This project was developed with AI assistance to accelerate development and ensure comprehensive feature coverage.
 
+## Response Body Templating
+
+The server supports dynamic response templating using data from requests, metadata, headers, and stream context. Templates use `{{expression}}` syntax and can access various data sources.
+
+### Template Syntax
+- `{{request.field}}` - Access request fields (supports nested paths like `request.user.name`)
+- `{{metadata.header}}` - Access gRPC metadata/headers
+- `{{stream.index}}` - Current stream item index (0-based)
+- `{{stream.total}}` - Total number of stream items
+- `{{stream.isFirst}}` - Boolean indicating first stream item
+- `{{stream.isLast}}` - Boolean indicating last stream item
+- `{{utils.now()}}` - Current timestamp in milliseconds
+- `{{utils.uuid()}}` - Generate random UUID
+- `{{utils.random(min, max)}}` - Generate random number between min and max
+- `{{utils.format(template, ...args)}}` - Format string with %s placeholders
+
+### Example Template Rule
+```yaml
+match:
+  request:
+    name: { exists: true }
+responses:
+  - when:
+      request.name: "template"
+    body:
+      message: "Hello {{request.name}}! Current time: {{utils.now()}}"
+      timestamp: "{{utils.now()}}"
+      user_info:
+        name: "{{request.name}}"
+        greeting: "Welcome {{request.name}}"
+        random_number: "{{utils.random(1, 100)}}"
+        user_agent: "{{metadata.user-agent}}"
+    trailers:
+      grpc-status: "0"
+```
+
+### Streaming Template Example
+```yaml
+match:
+  request:
+    user_id: "template_user"
+responses:
+  - when:
+      request.user_id: "template_user"
+    stream_items:
+      - id: "msg_{{stream.index}}"
+        content: "Message #{{stream.index + 1}} of {{stream.total}} for {{request.user_id}}"
+        timestamp: "{{utils.now()}}"
+        is_first: "{{stream.isFirst}}"
+        is_last: "{{stream.isLast}}"
+        random_id: "{{utils.uuid()}}"
+    stream_delay_ms: 1000
+    trailers:
+      grpc-status: "0"
+```
+
+### Testing Templates
+```bash
+# Test basic templating
+grpcurl -plaintext -d '{"name":"template"}' localhost:50050 helloworld.Greeter/SayHello
+
+# Test with metadata
+grpcurl -plaintext \
+  -H 'authorization: Bearer token123' \
+  -H 'user-agent: test-client' \
+  -d '{"name":"metadata"}' localhost:50050 helloworld.Greeter/SayHello
+
+# Test streaming templates
+grpcurl -plaintext -d '{"user_id":"template_user"}' localhost:50050 streaming.StreamService/GetMessages
+```
+
+### Template Features
+- **Input Static**: Match conditions (`match` and `when`) remain static for predictable routing
+- **Output Dynamic**: Response bodies (`body` and `stream_items`) support full templating
+- **Flexible Access**: Access request fields, metadata, stream context, and utility functions
+- **Safe Evaluation**: Invalid expressions gracefully fall back to empty strings
+- **Nested Support**: Templates work in nested objects and arrays
+
 ## Roadmap
-- Response body templating with variables from request/metadata.
 - Create, edit, and validate rule bodies inline with schema validation.
 - Preview matched response given sample request and metadata.

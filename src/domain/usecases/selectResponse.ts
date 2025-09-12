@@ -1,8 +1,9 @@
 import get from "lodash.get";
 import type { MetadataMap, ResponseOption, RuleDoc } from "../types.js";
+import { renderTemplate, createTemplateContext } from "./templateEngine.js";
 
 // Pure use case: select a response given rule, request and metadata
-export function selectResponse(ruleDoc: RuleDoc | undefined, req: unknown, metadata: MetadataMap): ResponseOption {
+export function selectResponse(ruleDoc: RuleDoc | undefined, req: unknown, metadata: MetadataMap, streamIndex?: number, streamTotal?: number): ResponseOption {
   if (!ruleDoc) return defaultOk();
 
   const match = ruleDoc.match || {};
@@ -38,10 +39,10 @@ export function selectResponse(ruleDoc: RuleDoc | undefined, req: unknown, metad
   }
 
   if (candidates.length > 0) {
-    return pickHighestPriority(candidates, list);
+    return applyTemplating(pickHighestPriority(candidates, list), req, metadata, streamIndex, streamTotal);
   }
   // No conditional match -> fallback
-  return fallbackOrDefault(ruleDoc);
+  return applyTemplating(fallbackOrDefault(ruleDoc), req, metadata, streamIndex, streamTotal);
 }
 
 function fallbackOrDefault(ruleDoc: RuleDoc): ResponseOption {
@@ -49,6 +50,35 @@ function fallbackOrDefault(ruleDoc: RuleDoc): ResponseOption {
   const fallbacks = list.filter(x => !x.when);
   if (fallbacks.length > 0) return pickHighestPriority(fallbacks, list);
   return defaultOk();
+}
+
+function applyTemplating(response: ResponseOption, req: unknown, metadata: MetadataMap, streamIndex?: number, streamTotal?: number): ResponseOption {
+  const context = createTemplateContext(
+    req, 
+    metadata, 
+    streamIndex !== undefined && streamTotal !== undefined 
+      ? { index: streamIndex, total: streamTotal } 
+      : undefined
+  );
+  
+  const templatedResponse = { ...response };
+  
+  if (templatedResponse.body !== undefined) {
+    templatedResponse.body = renderTemplate(templatedResponse.body, context);
+  }
+  
+  if (templatedResponse.stream_items) {
+    templatedResponse.stream_items = templatedResponse.stream_items.map((item, index) => {
+      const itemContext = createTemplateContext(
+        req, 
+        metadata, 
+        { index, total: templatedResponse.stream_items!.length }
+      );
+      return renderTemplate(item, itemContext);
+    });
+  }
+  
+  return templatedResponse;
 }
 
 function pickHighestPriority(options: ResponseOption[], originalOrder: ResponseOption[]): ResponseOption {

@@ -119,7 +119,7 @@ Healthcheck:
 Enable TLS by uncommenting the TLS lines in `docker-compose.yml` after generating certs:
 ```bash
 # Generate certs under ./certs
-bash scripts/generate-local-certs.sh
+bash scripts/generate-web-auth-cert.sh
 
 # In docker-compose.yml, uncomment the 50051 port mapping and TLS env vars
 # Then start the stack
@@ -203,14 +203,24 @@ Admin UI (`/app/`) shows:
 - Whether TLS is enabled and a TLS error when misconfigured
 
 ### Generate Local Self-Signed Certs
-Use the helper script to create a local CA, server cert (CN=localhost), and client cert for mTLS testing:
+Choose one of the available certificate generation scripts:
+
+**Option 1: Web Authentication certificates (recommended for mTLS)**
 ```bash
-bash scripts/generate-local-certs.sh
+bash scripts/generate-web-auth-cert.sh
 ```
-Outputs files in `./certs/` (gitignored):
+Generates certificates with TLS Web Server/Client Authentication extensions.
+
+**Option 2: System-trusted certificates**
+```bash
+bash scripts/generate-trusted-cert.sh
+```
+Generates CA-signed certificates that can be installed system-wide for trust.
+
+Both scripts output files in `./certs/` (gitignored):
 - `ca.crt` — local CA certificate
 - `server.crt`, `server.key` — server TLS cert/key (SAN includes localhost and 127.0.0.1)
-- `client.crt`, `client.key` — client certificate for mTLS testing
+- `client.crt`, `client.key` — client certificate for mTLS testing (web-auth script only)
 
 grpcurl examples using generated certs:
 ```bash
@@ -435,6 +445,10 @@ grpcurl -plaintext -d '{"user_id":"live_user"}' localhost:50050 streaming.Stream
 # Test live monitoring events (Ctrl+C to stop)
 grpcurl -plaintext -d '{"topic":"live_monitoring"}' localhost:50050 streaming.StreamService/WatchEvents
 ```
+
+## Development
+
+This project was developed with AI assistance to accelerate development and ensure comprehensive feature coverage.
 
 ## Roadmap
 - Response body templating with variables from request/metadata.

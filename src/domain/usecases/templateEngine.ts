@@ -10,12 +10,14 @@ export interface TemplateContext {
     isFirst: boolean;
     isLast: boolean;
   };
-  utils: {
-    now: () => number;
-    uuid: () => string;
-    random: (min?: number, max?: number) => number;
-    format: (template: string, ...args: unknown[]) => string;
-  };
+  utils: TemplateUtils;
+}
+
+export interface TemplateUtils {
+  now: () => number;
+  uuid: () => string;
+  random: (min?: number, max?: number) => number;
+  format: (template: string, ...args: unknown[]) => string;
 }
 
 export function renderTemplate(template: unknown, context: TemplateContext): unknown {
@@ -128,25 +130,28 @@ function parseArguments(argsStr: string, context: TemplateContext): unknown[] {
 }
 
 export function createTemplateContext(
-  request: unknown, 
-  metadata: MetadataMap, 
-  streamInfo?: { index: number; total: number }
+  request: unknown,
+  metadata: MetadataMap,
+  streamInfo?: { index: number; total: number },
+  utilsOverrides?: Partial<TemplateUtils>
 ): TemplateContext {
+  const defaultUtils: TemplateUtils = {
+    now: () => Date.now(),
+    uuid: () => crypto.randomUUID(),
+    random: (min = 0, max = 1) => Math.random() * (max - min) + min,
+    format: (template: string, ...args: unknown[]) => template.replace(/%s/g, () => String(args.shift() ?? '')),
+  };
+
   return {
     request,
     metadata,
-    stream: streamInfo ? {
-      ...streamInfo,
-      isFirst: streamInfo.index === 0,
-      isLast: streamInfo.index === streamInfo.total - 1
-    } : undefined,
-    utils: {
-      now: () => Date.now(),
-      uuid: () => crypto.randomUUID(),
-      random: (min = 0, max = 1) => Math.random() * (max - min) + min,
-      format: (template: string, ...args: unknown[]) => {
-        return template.replace(/%s/g, () => String(args.shift() ?? ''));
-      }
-    }
+    stream: streamInfo
+      ? {
+          ...streamInfo,
+          isFirst: streamInfo.index === 0,
+          isLast: streamInfo.index === streamInfo.total - 1,
+        }
+      : undefined,
+    utils: { ...defaultUtils, ...(utilsOverrides || {}) },
   };
 }

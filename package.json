@@ -13,8 +13,7 @@
     "dist/",
     "bin/",
     "frontend/",
-    "README.md",
-    "AGENTS.md"
+    "README.md"
   ],
   "engines": {
     "node": ">=18"
@@ -39,16 +38,15 @@
     "build": "tsc -p tsconfig.json",
     "start": "bun dist/app.js",
     "build:watch": "tsc -w -p tsconfig.json",
-    "start:watch": "bun --watch dist/app.js",
     "start:develop": "bun scripts/dev.mjs",
     "start:develop:ts": "bun --watch src/app.ts",
     "protos:fetch": "bash scripts/fetch-third-party-protos.sh",
     "test": "bun test",
     "test:watch": "bun test --watch",
-    "build:node": "tsc -p tsconfig.json",
+    "coverage:html": "bun scripts/coverage-html.mjs",
     "start:node": "tsc -p tsconfig.json && node dist/app.js",
-    "build:watch:node": "tsc -w -p tsconfig.json",
     "start:node:watch": "node --watch dist/app.js",
+    "test:readme-examples": "bash scripts/test-readme-examples.sh",
     "prepublishOnly": "tsc -p tsconfig.json"
   }
 }

@@ -1,106 +1,94 @@
 import express from "express";
 import fs from "fs";
 import path from "path";
+import { setupFileRoutes } from './http/fileRoutes.js';
+import { sendError, sendNotFound, sendSuccess } from './http/responseHelper.js';
+import { validateFilename } from './http/validator.js';
+import { HTTP_STATUS } from './http/constants.js';
+import { StatusResponse, ServicesResponse } from './types.js';
 
-export function createAdminApp(params: {
+interface AdminAppParams {
   httpPort: number | string;
   protoDir: string;
   ruleDir: string;
   uploadsDir: string;
-  getStatus: () => {
-    // Back-compat: keep grpc_port while adding richer grpc_ports
-    grpc_port?: number | string;
-    grpc_ports?: {
-      plaintext: number | string;
-      tls?: number | string;
-      tls_enabled: boolean;
-      mtls?: boolean;
-      tls_error?: string | null;
-    };
-    loaded_services: string[];
-    rules: string[];
-    protos?: {
-      loaded: string[];
-      skipped: { file: string; status?: string; error?: string }[];
-    };
-  };
-  listServices: () => { services: { name: string; package: string; service: string; methods: { name: string; full_method: string; rule_key: string; request_type: string; response_type: string; }[] }[] };
-  getSchema: (typeName: string) => any | null | undefined;
+  getStatus: () => StatusResponse;
+  listServices: () => ServicesResponse;
+  getSchema: (typeName: string) => unknown | null | undefined;
   onRuleUpdated: () => void;
-}) {
-  const { httpPort, protoDir, ruleDir, getStatus, listServices, getSchema, onRuleUpdated } = params;
-  const app = express();
-  app.use(express.json({ limit: "10mb" }));
+}
 
-  // Serve static frontend (if present) under /app
+function setupServiceRoutes(app: any, params: AdminAppParams) {
+  const { getStatus, listServices, getSchema } = params;
+
+  app.get("/admin/status", (_req: any, res: any) => {
+    sendSuccess(res, getStatus());
+  });
+
+  app.get("/admin/services", (_req: any, res: any) => {
+    try {
+      sendSuccess(res, listServices());
+    } catch (error) {
+      sendError(res, error, "Failed to list services");
+    }
+  });
+
+  app.get("/admin/schema/:typeName", (req: any, res: any) => {
+    const typeName = String(req.params.typeName || "");
+    if (!validateFilename(typeName, res)) return;
+    
+    try {
+      const info = getSchema(typeName);
+      if (info === null) {
+        return res.status(HTTP_STATUS.SERVICE_UNAVAILABLE).json({ error: "schema unavailable (no protos loaded)" });
+      }
+      if (typeof info === "undefined") {
+        return sendNotFound(res, `type not found: ${typeName}`);
+      }
+      sendSuccess(res, info);
+    } catch (error) {
+      sendError(res, error, "Failed to get schema");
+    }
+  });
+}
+
+function setupStaticFiles(app: any) {
   try {
     const frontendDir = path.resolve("frontend");
     if (fs.existsSync(frontendDir)) {
       app.use("/app", express.static(frontendDir));
-      // SPA-style fallback for nested routes under /app
       app.get("/app/*", (_req: any, res: any) => {
         res.sendFile(path.join(frontendDir, "index.html"));
       });
     }
   } catch {}
+}
 
-  app.post("/admin/upload/proto", (req: any, res: any) => {
-    const { filename, content } = (req.body || {}) as { filename?: string; content?: string };
-    if (!filename || !content) return res.status(400).json({ error: "filename & content required" });
-    const p = path.join(protoDir, path.basename(filename));
-    fs.writeFileSync(p, content, "utf8");
-    res.json({ ok: true, saved: p });
-  });
-
-  app.post("/admin/upload/rule", (req: any, res: any) => {
-    const { filename, content } = (req.body || {}) as { filename?: string; content?: string };
-    if (!filename || !content) return res.status(400).json({ error: "filename & content required" });
-    const p = path.join(ruleDir, path.basename(filename));
-    fs.writeFileSync(p, content, "utf8");
-    onRuleUpdated();
-    res.json({ ok: true, saved: p });
-  });
-
-  app.get("/admin/status", (_req: any, res: any) => {
-    res.json(getStatus());
-  });
-
-  // List services and methods (read-only)
-  app.get("/admin/services", (_req: any, res: any) => {
-    try {
-      res.json(listServices());
-    } catch (e: any) {
-      res.status(500).json({ error: e?.message || String(e) });
-    }
-  });
-
-  // Inspect message schema by fully-qualified type name (e.g., helloworld.HelloRequest)
-  app.get("/admin/schema/:typeName", (req: any, res: any) => {
-    const typeName = String(req.params?.typeName || "");
-    if (!typeName) return res.status(400).json({ error: "typeName required" });
-    try {
-      const info = getSchema(typeName);
-      if (info === null) return res.status(503).json({ error: "schema unavailable (no protos loaded)" });
-      if (typeof info === "undefined") return res.status(404).json({ error: `type not found: ${typeName}` });
-      res.json(info);
-    } catch (e: any) {
-      res.status(500).json({ error: e?.message || String(e) });
-    }
-  });
-
-  // Health check endpoints
+function setupHealthChecks(app: any) {
   app.get("/", (_req: any, res: any) => {
-    res.status(200).json({ ok: true });
+    sendSuccess(res, { ok: true });
   });
 
   app.get("/liveness", (_req: any, res: any) => {
-    res.status(200).json({ status: "alive" });
+    sendSuccess(res, { status: "alive" });
   });
 
   app.get("/readiness", (_req: any, res: any) => {
-    res.status(200).json({ status: "ready" });
+    sendSuccess(res, { status: "ready" });
   });
+}
 
+export function createAdminApp(params: AdminAppParams) {
+  const { httpPort, protoDir, ruleDir, onRuleUpdated } = params;
+  const app = express();
+  
+  app.use(express.json({ limit: "10mb" }));
+  
+  setupStaticFiles(app);
+  setupFileRoutes(app, protoDir, ruleDir, onRuleUpdated);
+  setupServiceRoutes(app, params);
+  setupHealthChecks(app);
+  
   app.listen(httpPort, '0.0.0.0', () => console.log(`[grpc-server-mock] HTTP admin on ${httpPort}`));
   return app;
 }

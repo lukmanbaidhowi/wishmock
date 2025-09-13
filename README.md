@@ -86,7 +86,7 @@ npm run start:node
 3) Develop with watch (two terminals)
 ```bash
 # Terminal A (TypeScript compile in watch mode)
-npm run build:watch:node
+npm run build:watch
 
 # Terminal B (Node >= 20 for --watch)
 npm run start:node:watch
@@ -104,36 +104,40 @@ npm run start:node:watch
 - This UI is static (no build tools) and is served by Express from `frontend/`.
 
 ### Docker
-Default (plaintext only):
+Default (with TLS enabled):
 ```bash
+# Generate certs first
+bash scripts/generate-web-auth-cert.sh
+
+# Start with TLS enabled
 docker compose up --build
 ```
 
-- Exposes: gRPC plaintext on `50050`, Admin HTTP on `3000`.
-- TLS port `50051` is not exposed by default to avoid confusion.
+- Exposes: gRPC plaintext on `50050`, gRPC TLS on `50051`, Admin HTTP on `3000`.
+- TLS is enabled by default in docker-compose.yml with certificates from `./certs/`.
 
 Healthcheck:
 - The container includes a healthcheck that hits `http://localhost:3000/liveness` inside the container.
 - View health: `docker ps` (look for `healthy`), or `docker inspect --format='{{json .State.Health}}' grpc-server-mock | jq .`
 
-Enable TLS by uncommenting the TLS lines in `docker-compose.yml` after generating certs:
+To disable TLS, comment out the TLS environment variables and port mapping in `docker-compose.yml`:
 ```bash
-# Generate certs under ./certs
-bash scripts/generate-web-auth-cert.sh
-
-# In docker-compose.yml, uncomment the 50051 port mapping and TLS env vars
-# Then start the stack
-docker compose up --build
+# Comment out in docker-compose.yml:
+# - "50051:50051"   # gRPC TLS
+# - GRPC_TLS_ENABLED=true
+# - GRPC_TLS_CERT_PATH=/app/certs/server.crt
+# - GRPC_TLS_KEY_PATH=/app/certs/server.key
+# - GRPC_TLS_CA_PATH=/app/certs/ca.crt
 ```
 
-grpcurl with TLS/mTLS (Docker TLS enabled):
+grpcurl with TLS/mTLS (Docker TLS enabled by default):
 ```bash
 # TLS (server-auth only) — uses server cert signed by local CA
 grpcurl -d '{"name":"Tom"}' \
   -cacert certs/ca.crt \
   localhost:50051 helloworld.Greeter/SayHello
 
-# mTLS (client-auth) — uncomment GRPC_TLS_CA_PATH in docker-compose.yml
+# mTLS (client-auth) — set GRPC_TLS_REQUIRE_CLIENT_CERT=true in docker-compose.yml
 # and restart the stack; then call with client cert/key
 grpcurl -d '{"name":"Tom"}' \
   -cacert certs/ca.crt \
@@ -195,8 +199,8 @@ Environment variables:
 Behavior:
 - Plaintext server always binds on `GRPC_PORT_PLAINTEXT` (exposed by default in Docker).
 - If TLS is enabled and cert/key are valid, a TLS server also binds on `GRPC_PORT_TLS`.
-- In Docker, TLS port `50051` is exposed only if you uncomment its mapping in `docker-compose.yml`.
 - If TLS is enabled but certificate loading fails, plaintext still runs; Admin status shows `tls_error`.
+- Server gracefully falls back to plaintext-only mode when TLS certificates are missing or misconfigured.
 
 Admin UI (`/app/`) shows:
 - Plaintext and TLS port values

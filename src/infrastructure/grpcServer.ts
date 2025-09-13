@@ -232,39 +232,64 @@ export async function createGrpcServer(rootNamespace: protobuf.Root, rulesIndex:
     }
 
     if (files && files.length) {
-      // Build include paths: protoDir as the primary include path
+      // Build include paths: protoDir as the primary include path (+ common subdirs if present)
       let includeDirs: string[] = [];
       if (opts?.protoDir) {
         const base = path.resolve(opts.protoDir);
         includeDirs = [base];
+        const maybeDirs = [
+          path.join(base, 'google'),
+          path.join(base, 'google', 'type'),
+          path.join(base, 'google', 'protobuf'),
+          path.join(base, 'validate'),
+          path.join(base, 'opentelemetry'),
+        ];
+        for (const d of maybeDirs) {
+          try { if (fs.existsSync(d) && fs.statSync(d).isDirectory()) includeDirs.push(d); } catch {}
+        }
+        // Ensure descriptors for common third-party imports are included by
+        // explicitly adding them to the files list when present. Some reflection
+        // wrappers require the dependent files to be part of the loaded set.
+        const deps = [
+          "google/type/datetime.proto",
+          "google/type/money.proto",
+          "google/type/latlng.proto",
+          "google/protobuf/timestamp.proto",
+          "google/protobuf/duration.proto",
+        ];
+        const extra: string[] = [];
+        for (const rel of deps) {
+          const p = path.join(base, rel);
+          if (fs.existsSync(p)) extra.push(p);
+        }
+        if (extra.length) {
+          const set = new Set<string>(files.map(f => path.resolve(f)));
+          for (const e of extra) set.add(path.resolve(e));
+          files = Array.from(set);
+        }
       }
       
       log(`(info) Reflection: proto-loader files: ${files.map(f => path.relative(opts?.protoDir || process.cwd(), f)).join(", ")}`);
       log(`(info) Reflection: includeDirs: ${includeDirs.map(d => path.relative(process.cwd(), d)).join(", ")}`);
       
-      // Load files individually to handle import resolution issues gracefully
-      const packageDefinitions: any[] = [];
-      for (const file of files) {
-        try {
-          const pkgDef = protoLoader.loadSync([file], {
-            includeDirs,
-            keepCase: true,
-            longs: String,
-            enums: String,
-            defaults: false,
-            oneofs: true,
-          });
-          packageDefinitions.push(pkgDef);
-          log(`(info) Reflection: loaded ${path.relative(opts?.protoDir || process.cwd(), file)}`);
-        } catch (e: any) {
-          log(`(warn) Reflection: failed to load ${path.relative(opts?.protoDir || process.cwd(), file)}: ${e.message}`);
+      // Load ALL entry files in a single call so proto-loader retains a complete
+      // descriptor set (including transitive dependencies like google/type/*).
+      // Loading individually and shallow-merging can drop fileDescriptorProtos.
+      try {
+        const pkgDef = protoLoader.loadSync(files, {
+          includeDirs,
+          keepCase: true,
+          longs: String,
+          enums: String,
+          defaults: false,
+          oneofs: true,
+        });
+        packageObject = grpc.loadPackageDefinition(pkgDef);
+        for (const f of files) {
+          log(`(info) Reflection: loaded ${path.relative(opts?.protoDir || process.cwd(), f)}`);
         }
-      }
-      
-      // Merge all package definitions
-      if (packageDefinitions.length > 0) {
-        const merged = Object.assign({}, ...packageDefinitions);
-        packageObject = grpc.loadPackageDefinition(merged);
+      } catch (e: any) {
+        log(`(warn) Reflection: failed to load proto definitions: ${e?.message || e}`);
       }
     }
   } catch (e) {

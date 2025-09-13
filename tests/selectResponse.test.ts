@@ -151,7 +151,6 @@ describe("selectResponse", () => {
     const res2 = selectResponse(rule2, { a: 1 }, {});
     expect(res2.body).toEqual({ fb: 4 });
   });
-});
   it("supports exists operator", () => {
     const rule: RuleDoc = {
       match: { request: { "user.id": { exists: true } as any } },
@@ -209,6 +208,18 @@ describe("selectResponse", () => {
     expect(res.body).toEqual({ message: "fallback" });
   });
 
+  it("returns fallback when 'gt' condition fails (num <= rhs)", () => {
+    const rule: RuleDoc = {
+      match: { request: { score: { gt: 10 } as any } },
+      responses: [
+        { body: { message: "fallback-gt" }, trailers: { "grpc-status": "0" } },
+      ],
+    } as any;
+    // score == 10 -> not greater than 10 -> top-level match fails -> fallback chosen
+    const res = selectResponse(rule, { score: 10 }, {});
+    expect(res.body).toEqual({ message: "fallback-gt" });
+  });
+
   it("handles unknown operator objects by falling back to string equality", () => {
     const rule: RuleDoc = {
       match: { request: { name: { unknownOp: "value" } as any } },
@@ -253,3 +264,60 @@ describe("selectResponse", () => {
     const res = selectResponse(rule, { role: "admin" }, {});
     expect(res.body).toEqual({ message: "fallback" });
   });
+
+  it("applies templating for stream_items with correct index/total mapping", () => {
+    const rule: RuleDoc = {
+      match: { request: { any: { exists: false } as any } },
+      responses: [
+        {
+          stream_items: [
+            { i: "{{stream.index}}", t: "{{stream.total}}", first: "{{stream.isFirst}}", last: "{{stream.isLast}}" },
+            { i: "{{stream.index}}", t: "{{stream.total}}", first: "{{stream.isFirst}}", last: "{{stream.isLast}}" },
+            { i: "{{stream.index}}", t: "{{stream.total}}", first: "{{stream.isFirst}}", last: "{{stream.isLast}}" },
+          ],
+          trailers: { "grpc-status": "0" },
+        } as unknown as ResponseOption,
+      ],
+    } as any;
+
+    const res = selectResponse(rule, { foo: "bar" }, {});
+    expect(res.stream_items).toEqual([
+      { i: "0", t: "3", first: "true",  last: "false" },
+      { i: "1", t: "3", first: "false", last: "false" },
+      { i: "2", t: "3", first: "false", last: "true"  },
+    ]);
+  });
+
+  it("applies stream context to top-level body templating when provided", () => {
+    const rule = {
+      match: {},
+      responses: [
+        {
+          body: {
+            first: "{{stream.isFirst}}",
+            last: "{{stream.isLast}}",
+            msg: "item {{stream.index}} of {{stream.total}}",
+          },
+        },
+      ],
+    } as any;
+
+    const res0 = selectResponse(rule, {}, {}, 0, 3);
+    expect(res0.body).toEqual({ first: "true", last: "false", msg: "item 0 of 3" });
+
+    const resLast = selectResponse(rule, {}, {}, 2, 3);
+    expect(resLast.body).toEqual({ first: "false", last: "true", msg: "item 2 of 3" });
+  });
+
+  it("treats 'flags' only object as known operator and matches true", () => {
+    const rule: RuleDoc = {
+      match: { request: { any: { flags: "i" } as any } },
+      responses: [
+        { body: { ok: true }, trailers: { "grpc-status": "0" } },
+      ],
+    } as any;
+    // compare() will see known key 'flags' and return true
+    const res = selectResponse(rule, { any: "whatever" }, {});
+    expect(res.body).toEqual({ ok: true });
+  });
+});

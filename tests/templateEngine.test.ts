@@ -138,4 +138,101 @@ describe("Template Engine", () => {
     expect(result.welcome.version).toBe("Client: 1.0.0");
     expect(typeof result.timestamp).toBe("string");
   });
+
+  it("should allow deterministic utils via utilsOverrides", () => {
+    const context = createTemplateContext(
+      { name: "Dana" },
+      { traceId: "abc" },
+      undefined,
+      {
+        now: () => 1700000000000,
+        uuid: () => "00000000-0000-4000-8000-000000000000",
+        random: (min = 0, max = 1) => min + (max - min) * 0.5,
+        format: (tpl: string, ...args: unknown[]) => `F:${tpl}|${args.join(',')}`,
+      }
+    );
+
+    const template = {
+      ts: "{{utils.now()}}",
+      id: "{{utils.uuid()}}",
+      rnd: "{{utils.random(10, 20)}}",
+      msg: "{{utils.format('Hello %s', request.name)}}",
+    } as const;
+
+    const result = renderTemplate(template, context);
+    expect(result).toEqual({
+      ts: "1700000000000",
+      id: "00000000-0000-4000-8000-000000000000",
+      rnd: String(0.5 * (20 - 10) + 10),
+      msg: "F:Hello %s|Dana",
+    });
+  });
+
+  it("catches errors during expression evaluation and returns original token", () => {
+    const context = createTemplateContext(
+      {},
+      {},
+      undefined,
+      {
+        // Force a throw when called
+        now: () => { throw new Error("boom"); },
+      }
+    );
+
+    const result = renderTemplate("ts={{utils.now()}}", context);
+    // Should keep the original token since evaluation threw
+    expect(result).toBe("ts={{utils.now()}}");
+  });
+
+  it("parses boolean arguments in function calls", () => {
+    const context = createTemplateContext(
+      {},
+      {},
+      undefined,
+      {
+        // Echo the boolean as a string for assertion
+        format: (_tpl: string, v: unknown) => String(v === true),
+      }
+    );
+
+    const resultTrue = renderTemplate("{{utils.format('%s', true)}}", context);
+    const resultFalse = renderTemplate("{{utils.format('%s', false)}}", context);
+    expect(resultTrue).toBe("true");
+    expect(resultFalse).toBe("false");
+  });
+
+  it("returns raw expression for unknown function paths", () => {
+    const context = createTemplateContext({}, {});
+    const result = renderTemplate("X {{utils.notExist(1)}} Y", context);
+    // Since utils.notExist is not a function, expression is left as-is
+    expect(result).toBe("X utils.notExist(1) Y");
+  });
+
+  it("returns raw expression when function syntax doesn't match", () => {
+    const context = createTemplateContext({}, {});
+    // Missing closing parenthesis -> includes('(') true, but regex won't match
+    const result = renderTemplate("Z={{utils.random(1,2}}", context);
+    expect(result).toBe("Z=utils.random(1,2");
+  });
+
+  it("supports direct property access fallback", () => {
+    const context = createTemplateContext({}, { h: "v" });
+    const result = renderTemplate("M={{metadata}}", context);
+    // Stringifying the whole object
+    expect(result).toBe("M=[object Object]");
+  });
+
+  it("returns non-string templates unchanged (number, null)", () => {
+    const context = createTemplateContext({}, {});
+    expect(renderTemplate(42, context)).toBe(42);
+    expect(renderTemplate(null, context)).toBeNull();
+  });
+
+  it("stringifies function references when used without parentheses", () => {
+    const context = createTemplateContext({}, {});
+    const result = renderTemplate("F={{utils.format}}", context) as string;
+    expect(result).toContain("F=");
+    // In Bun/TS transpile, functions may stringify as arrow functions
+    expect(result.includes("function") || result.includes("=>")).toBe(true);
+  });
 });

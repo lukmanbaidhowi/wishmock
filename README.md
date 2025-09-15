@@ -11,7 +11,6 @@ Supports hot reload for both proto files and rules.
 - **YAML/JSON Rules** - Define responses in YAML/JSON rules
 - **Advanced Operators** - Regex, contains, in, exists, numeric matching
 - **Priority Selection** - Highest numeric `priority` wins (default 0; order as tiebreaker)
-- **gRPC Reflection** - Auto-discovery of services without `.proto` files
 - **TLS/mTLS Support** - Secure connections with client certificate validation
 - **Server Streaming** - Stream multiple responses with configurable delays
 - **Infinite Loop Streaming** - Continuous streaming with random order support
@@ -64,6 +63,35 @@ bun run start:develop
 - Admin HTTP server: `localhost:3000`
 
 Note: Requires Bun >= 1.0. The provided Dockerfile uses `oven/bun:1.2.20-alpine`.
+
+### Enable TLS locally with .env
+You can enable TLS for the local Bun run by providing certificate paths via environment variables. Place them in a dotenv file (for example `.env.tls`) and load it with Bun.
+
+1) Generate local certs (once):
+```bash
+bash scripts/generate-web-auth-cert.sh
+```
+
+2) Create `.env.tls` (example):
+```dotenv
+GRPC_PORT_PLAINTEXT=50050
+GRPC_PORT_TLS=50051
+GRPC_TLS_ENABLED=true
+GRPC_TLS_CERT_PATH=certs/server.crt
+GRPC_TLS_KEY_PATH=certs/server.key
+GRPC_TLS_CA_PATH=certs/ca.crt
+GRPC_TLS_REQUIRE_CLIENT_CERT=false
+```
+
+3) Start the server with the env file:
+```bash
+# Important: pass --env-file before "run"
+bun --env-file= .env.tls run start
+```
+
+4) Verify TLS is active:
+- Logs include: `gRPC (TLS) listening on 50051`
+- `curl http://localhost:3000/admin/status` shows `grpc_ports.tls_enabled: true` and `grpc_ports.tls: 50051`
 
 ## Usage (Node / npx)
 If you prefer Node, you can run the server with Node or npx.
@@ -133,13 +161,13 @@ To disable TLS, comment out the TLS environment variables and port mapping in `d
 grpcurl with TLS/mTLS (Docker TLS enabled by default):
 ```bash
 # TLS (server-auth only) — uses server cert signed by local CA
-grpcurl -d '{"name":"Tom"}' \
+grpcurl -import-path protos -proto helloworld.proto -d '{"name":"Tom"}' \
   -cacert certs/ca.crt \
   localhost:50051 helloworld.Greeter/SayHello
 
 # mTLS (client-auth) — set GRPC_TLS_REQUIRE_CLIENT_CERT=true in docker-compose.yml
 # and restart the stack; then call with client cert/key
-grpcurl -d '{"name":"Tom"}' \
+grpcurl -import-path protos -proto helloworld.proto -d '{"name":"Tom"}' \
   -cacert certs/ca.crt \
   -cert certs/client.crt \
   -key certs/client.key \
@@ -148,7 +176,7 @@ grpcurl -d '{"name":"Tom"}' \
 
 3. Test with grpcurl (plaintext):
    ```bash
-   grpcurl -plaintext -d '{"name":"Tom"}' localhost:50050 helloworld.Greeter/SayHello
+   grpcurl -import-path protos -proto helloworld.proto -plaintext -d '{"name":"Tom"}' localhost:50050 helloworld.Greeter/SayHello
    ```
 
 4. Hot reload:
@@ -175,10 +203,10 @@ grpcurl -d '{"name":"Tom"}' \
 
 Quick tests with grpcurl (plaintext):
 ```bash
-grpcurl -plaintext -d '{"id":"err-unauth"}' localhost:50050 calendar.Events/GetEvent
-grpcurl -plaintext -d '{"id":"err-forbidden"}' localhost:50050 calendar.Events/GetEvent
-grpcurl -plaintext -d '{"id":"err-unavailable"}' localhost:50050 calendar.Events/GetEvent
-grpcurl -plaintext -d '{"id":"err-deadline"}' localhost:50050 calendar.Events/GetEvent
+grpcurl -import-path protos -proto calendar.proto -plaintext -d '{"id":"err-unauth"}' localhost:50050 calendar.Events/GetEvent
+grpcurl -import-path protos -proto calendar.proto -plaintext -d '{"id":"err-forbidden"}' localhost:50050 calendar.Events/GetEvent
+grpcurl -import-path protos -proto calendar.proto -plaintext -d '{"id":"err-unavailable"}' localhost:50050 calendar.Events/GetEvent
+grpcurl -import-path protos -proto calendar.proto -plaintext -d '{"id":"err-deadline"}' localhost:50050 calendar.Events/GetEvent
 ```
 
 Note: On Bun, file watching uses polling for stability.
@@ -229,10 +257,10 @@ Both scripts output files in `./certs/` (gitignored):
 grpcurl examples using generated certs:
 ```bash
 # TLS (server-auth only)
-grpcurl -d '{"name":"Tom"}' -cacert certs/ca.crt localhost:50051 helloworld.Greeter/SayHello
+grpcurl -import-path protos -proto helloworld.proto -d '{"name":"Tom"}' -cacert certs/ca.crt localhost:50051 helloworld.Greeter/SayHello
 
 # mTLS (client-auth)
-grpcurl -d '{"name":"Tom"}' -cacert certs/ca.crt -cert certs/client.crt -key certs/client.key \
+grpcurl -import-path protos -proto helloworld.proto -d '{"name":"Tom"}' -cacert certs/ca.crt -cert certs/client.crt -key certs/client.key \
   localhost:50051 helloworld.Greeter/SayHello
 ```
 
@@ -292,7 +320,7 @@ responses:
 
 grpcurl example with Authorization header:
 ```bash
-grpcurl -plaintext \
+grpcurl -import-path protos -proto helloworld.proto -plaintext \
   -H 'authorization: Bearer token123' \
   -d '{"name":"Tom"}' localhost:50050 helloworld.Greeter/SayHello
 ```
@@ -315,7 +343,7 @@ grpcurl -plaintext \
 
 Quick test with grpcurl:
 ```bash
-grpcurl -plaintext -d '{"id":"next"}' localhost:50050 calendar.Events/GetEvent
+grpcurl -import-path protos -proto calendar.proto -plaintext -d '{"id":"next"}' localhost:50050 calendar.Events/GetEvent
 ```
 
 ## Error Simulation (gRPC Status)
@@ -432,22 +460,22 @@ responses:
 ### Testing Server Streaming
 ```bash
 # Test streaming messages
-grpcurl -plaintext -d '{"user_id":"user123"}' localhost:50050 streaming.StreamService/GetMessages
+grpcurl -import-path protos -proto streaming.proto -plaintext -d '{"user_id":"user123"}' localhost:50050 streaming.StreamService/GetMessages
 
 # Test streaming events
-grpcurl -plaintext -d '{"topic":"orders"}' localhost:50050 streaming.StreamService/WatchEvents
+grpcurl -import-path protos -proto streaming.proto -plaintext -d '{"topic":"orders"}' localhost:50050 streaming.StreamService/WatchEvents
 
 # Test with limit parameter
-grpcurl -plaintext -d '{"user_id":"test","limit":2}' localhost:50050 streaming.StreamService/GetMessages
+grpcurl -import-path protos -proto streaming.proto -plaintext -d '{"user_id":"test","limit":2}' localhost:50050 streaming.StreamService/GetMessages
 
 # Test error cases
-grpcurl -plaintext -d '{"user_id":"error_user"}' localhost:50050 streaming.StreamService/GetMessages
+grpcurl -import-path protos -proto streaming.proto -plaintext -d '{"user_id":"error_user"}' localhost:50050 streaming.StreamService/GetMessages
 
 # Test infinite loop with random order (Ctrl+C to stop)
-grpcurl -plaintext -d '{"user_id":"live_user"}' localhost:50050 streaming.StreamService/GetMessages
+grpcurl -import-path protos -proto streaming.proto -plaintext -d '{"user_id":"live_user"}' localhost:50050 streaming.StreamService/GetMessages
 
 # Test live monitoring events (Ctrl+C to stop)
-grpcurl -plaintext -d '{"topic":"live_monitoring"}' localhost:50050 streaming.StreamService/WatchEvents
+grpcurl -import-path protos -proto streaming.proto -plaintext -d '{"topic":"live_monitoring"}' localhost:50050 streaming.StreamService/WatchEvents
 ```
 
 ## Development
@@ -513,16 +541,16 @@ responses:
 ### Testing Templates
 ```bash
 # Test basic templating
-grpcurl -plaintext -d '{"name":"template"}' localhost:50050 helloworld.Greeter/SayHello
+grpcurl -import-path protos -proto helloworld.proto -plaintext -d '{"name":"template"}' localhost:50050 helloworld.Greeter/SayHello
 
 # Test with metadata
-grpcurl -plaintext \
+grpcurl -import-path protos -proto helloworld.proto -plaintext \
   -H 'authorization: Bearer token123' \
   -H 'user-agent: test-client' \
   -d '{"name":"metadata"}' localhost:50050 helloworld.Greeter/SayHello
 
 # Test streaming templates
-grpcurl -plaintext -d '{"user_id":"template_user"}' localhost:50050 streaming.StreamService/GetMessages
+grpcurl -import-path protos -proto streaming.proto -plaintext -d '{"user_id":"template_user"}' localhost:50050 streaming.StreamService/GetMessages
 ```
 
 ### Template Features
@@ -533,5 +561,6 @@ grpcurl -plaintext -d '{"user_id":"template_user"}' localhost:50050 streaming.St
 - **Nested Support**: Templates work in nested objects and arrays
 
 ## Roadmap
+- **gRPC Reflection** - Auto-discovery of services without `.proto` files
 - Create, edit, and validate rule bodies inline with schema validation.
 - Preview matched response given sample request and metadata.

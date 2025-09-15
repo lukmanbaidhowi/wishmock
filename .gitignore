@@ -44,6 +44,8 @@ coverage/
 .aider*
 codex*.log
 /AGENTS.md
+/GEMINI.md
+.amazonq/
 
 # Runtime/uploads
 uploads/

@@ -280,6 +280,8 @@ export async function createGrpcServer(rootNamespace: protobuf.Root, rulesIndex:
           path.join(base, 'google'),
           path.join(base, 'google', 'type'),
           path.join(base, 'google', 'protobuf'),
+          path.join(base, 'google', 'api'),
+          path.join(base, 'google', 'rpc'),
           path.join(base, 'validate'),
           path.join(base, 'opentelemetry'),
         ];
@@ -308,6 +310,22 @@ export async function createGrpcServer(rootNamespace: protobuf.Root, rulesIndex:
           oneofs: true,
         });
         packageObject = grpc.loadPackageDefinition(pkgDef);
+        try {
+          const hasDT = !!(packageObject as any)?.google?.type?.DateTime;
+          const dt: any = (packageObject as any)?.google?.type?.DateTime;
+          const fdpLen = Array.isArray(dt?.fileDescriptorProtos) ? dt.fileDescriptorProtos.length : 0;
+          log(`(info) Reflection: google.type.DateTime present: ${hasDT} descriptors: ${fdpLen}`);
+          const calSvc: any = (packageObject as any)?.calendar?.Events;
+          const calSvcDef: any = calSvc?.service;
+          if (calSvcDef) {
+            const getEvent = calSvcDef?.getEvent;
+            const reqType: any = getEvent?.requestType;
+            const resType: any = getEvent?.responseType;
+            const reqLen = Array.isArray(reqType?.fileDescriptorProtos) ? reqType.fileDescriptorProtos.length : 0;
+            const resLen = Array.isArray(resType?.fileDescriptorProtos) ? resType.fileDescriptorProtos.length : 0;
+            log(`(info) Reflection: calendar.Events/GetEvent descriptors — req: ${reqLen} res: ${resLen}`);
+          }
+        } catch {}
         for (const f of files) {
           log(`(info) Reflection: loaded ${path.relative(opts?.protoDir || process.cwd(), f)}`);
         }
@@ -322,8 +340,9 @@ export async function createGrpcServer(rootNamespace: protobuf.Root, rulesIndex:
 
   function lowerFirst(s: string) { return s ? s.charAt(0).toLowerCase() + s.slice(1) : s; }
 
-  // Now wrap server with reflection, providing the loaded packageObject so
-  // reflection can union descriptor protos for all loaded messages.
+  // Wrap server with reflection, providing the loaded packageObject.
+  // We intentionally avoid seeding with protobufjs-generated descriptors,
+  // as they collapse google/* files and break dependency names expected by grpcurl.
   const s = wrapServerWithReflection(rawServer, { packageObject });
 
   // Helper to get service definition object from loaded package by FQ name

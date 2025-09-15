@@ -216,39 +216,8 @@ export async function createGrpcServer(rootNamespace: protobuf.Root, rulesIndex:
     // This avoids issues with proto-loader trying to resolve all transitive deps
     let files: string[] | undefined = undefined;
     if (opts?.entryFiles && opts.entryFiles.length) {
+      // Use only the entry files; proto-loader will resolve imports using includeDirs.
       files = opts.entryFiles.map(f => path.resolve(f));
-      // Ensure common third‑party deps are included so reflection can resolve
-      // transitive types such as google/type/* and well‑known types.
-      if (opts?.protoDir) {
-        const base = path.resolve(opts.protoDir);
-        const deps = [
-          // google/type dependencies commonly referenced
-          "google/type/datetime.proto",
-          "google/type/date.proto",
-          "google/type/timeofday.proto",
-          "google/type/money.proto",
-          "google/type/latlng.proto",
-          "google/type/interval.proto",
-          "google/type/expr.proto",
-          "google/type/postal_address.proto",
-          "google/type/phone_number.proto",
-          "google/type/color.proto",
-          // well-known types
-          "google/protobuf/timestamp.proto",
-          "google/protobuf/duration.proto",
-          "google/protobuf/any.proto",
-          "google/protobuf/struct.proto",
-          "google/protobuf/wrappers.proto",
-          "google/protobuf/empty.proto",
-          "google/protobuf/field_mask.proto",
-        ];
-        const set = new Set<string>(files.map(f => path.resolve(f)));
-        for (const rel of deps) {
-          const p = path.join(base, rel);
-          try { if (fs.existsSync(p) && fs.statSync(p).isFile()) set.add(path.resolve(p)); } catch {}
-        }
-        files = Array.from(set);
-      }
     } else if (opts?.protoDir) {
       // No explicit entry files; include only top‑level .proto files in protoDir
       // (exclude nested vendor trees like envoy/* that may be incomplete).
@@ -276,22 +245,26 @@ export async function createGrpcServer(rootNamespace: protobuf.Root, rulesIndex:
       if (opts?.protoDir) {
         const base = path.resolve(opts.protoDir);
         includeDirs = [base];
-        const maybeDirs = [
-          path.join(base, 'google'),
-          path.join(base, 'google', 'type'),
-          path.join(base, 'google', 'protobuf'),
-          path.join(base, 'google', 'api'),
-          path.join(base, 'google', 'rpc'),
-          path.join(base, 'validate'),
-          path.join(base, 'opentelemetry'),
-        ];
-        for (const d of maybeDirs) {
-          try { if (fs.existsSync(d) && fs.statSync(d).isDirectory()) includeDirs.push(d); } catch {}
-        }
-        // Ensure descriptors for common third-party imports are included by
-        // explicitly adding them to the files list when present. Some reflection
-        // wrappers require the dependent files to be part of the loaded set.
-        // When recursively including files, the common deps above are already captured.
+        const pushIfDir = (d: string) => { try { if (fs.existsSync(d) && fs.statSync(d).isDirectory()) includeDirs.push(d); } catch {} };
+        // Add all first-level subdirectories under base
+        try {
+          for (const name of fs.readdirSync(base)) {
+            const p = path.join(base, name);
+            try { if (fs.statSync(p).isDirectory()) pushIfDir(p); } catch {}
+          }
+        } catch {}
+        // Also add second-level subdirectories under base/google (api, protobuf, rpc, type, etc.) if present
+        const googleDir = path.join(base, 'google');
+        try {
+          if (fs.existsSync(googleDir) && fs.statSync(googleDir).isDirectory()) {
+            for (const name of fs.readdirSync(googleDir)) {
+              const p = path.join(googleDir, name);
+              try { if (fs.statSync(p).isDirectory()) pushIfDir(p); } catch {}
+            }
+          }
+        } catch {}
+        // Deduplicate
+        includeDirs = Array.from(new Set(includeDirs));
       }
       
       log(`(info) Reflection: proto-loader files: ${files.map(f => path.relative(opts?.protoDir || process.cwd(), f)).join(", ")}`);

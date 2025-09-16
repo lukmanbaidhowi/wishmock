@@ -1,7 +1,8 @@
 match:
   request:
-    user_id: "template_user"
+    user_id: { exists: true }
 responses:
+  # Templating demo for docs
   - when:
       request.user_id: "template_user"
     stream_items:
@@ -11,16 +12,105 @@ responses:
         is_first: "{{stream.isFirst}}"
         is_last: "{{stream.isLast}}"
         random_id: "{{utils.uuid()}}"
-      - id: "msg_{{stream.index}}"
-        content: "Another message #{{stream.index}} at {{utils.now()}}"
-        timestamp: "{{utils.now()}}"
-        metadata_info: "User-Agent: {{metadata.user-agent}}"
-        random_number: "{{utils.random(1, 1000)}}"
-      - id: "msg_{{stream.index}}"
-        content: "Final message #{{stream.index}} with format: {{utils.format('User %s has %s messages', request.user_id, stream.total)}}"
-        timestamp: "{{utils.now()}}"
-        is_last: "{{stream.isLast}}"
     stream_delay_ms: 1000
     trailers:
       grpc-status: "0"
+    priority: 12
+
+  # Stream multiple messages for specific user
+  - when:
+      request.user_id: "user123"
+    stream_items:
+      - id: "msg1"
+        content: "Hello from user123!"
+        timestamp: 1640995200
+        sender: "alice"
+      - id: "msg2"
+        content: "How are you doing?"
+        timestamp: 1640995260
+        sender: "bob"
+      - id: "msg3"
+        content: "See you later!"
+        timestamp: 1640995320
+        sender: "alice"
+    stream_delay_ms: 500
+    trailers:
+      grpc-status: "0"
     priority: 10
+
+  # Stream with limit
+  - when:
+      request.limit: { gte: 1, lte: 2 }
+    stream_items:
+      - id: "msg_limited_1"
+        content: "First message"
+        timestamp: 1640995200
+        sender: "system"
+      - id: "msg_limited_2"
+        content: "Second message"
+        timestamp: 1640995260
+        sender: "system"
+    stream_delay_ms: 200
+    trailers:
+      grpc-status: "0"
+    priority: 5
+
+  # Error case - return error status
+  - when:
+      request.user_id: "error_user"
+    trailers:
+      grpc-status: "5"  # NOT_FOUND
+      grpc-message: "User not found"
+    priority: 15
+
+  # Infinite loop streaming with random order
+  - when:
+      request.user_id: "live_user"
+    stream_items:
+      - id: "live_1"
+        content: "Live message 1"
+        timestamp: 1640995200
+        sender: "system"
+      - id: "live_2"
+        content: "Live message 2"
+        timestamp: 1640995260
+        sender: "bot"
+      - id: "live_3"
+        content: "Live message 3"
+        timestamp: 1640995320
+        sender: "admin"
+    stream_delay_ms: 1000
+    stream_loop: true
+    stream_random_order: true
+    trailers:
+      grpc-status: "0"
+    priority: 8
+
+  # Infinite loop streaming (fixed order)
+  - when:
+      request.user_id: "monitor_user"
+    stream_items:
+      - id: "heartbeat"
+        content: "System heartbeat"
+        timestamp: 1640995200
+        sender: "monitor"
+      - id: "status"
+        content: "All systems operational"
+        timestamp: 1640995260
+        sender: "monitor"
+    stream_delay_ms: 2000
+    stream_loop: true
+    trailers:
+      grpc-status: "0"
+    priority: 7
+
+  # Default fallback - single message
+  - stream_items:
+      - id: "default_msg"
+        content: "Default message for unknown user"
+        timestamp: 1640995200
+        sender: "system"
+    stream_delay_ms: 100
+    trailers:
+      grpc-status: "0"
+    priority: 0

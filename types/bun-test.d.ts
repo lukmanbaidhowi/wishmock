@@ -18,5 +18,7 @@ declare module "bun:test" {
 
   // Very loose expect typing to satisfy editor intellisense
   export function expect<T = any>(actual: T): any;
-}
 
+  // Minimal mocking utilities to satisfy TS in this repo
+  export const vi: any;
+}

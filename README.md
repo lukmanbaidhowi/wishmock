@@ -11,10 +11,10 @@ Supports hot reload for both proto files and rules.
 - **YAML/JSON Rules** - Define responses in YAML/JSON rules
 - **Advanced Operators** - Regex, contains, in, exists, numeric matching
 - **Priority Selection** - Highest numeric `priority` wins (default 0; order as tiebreaker)
-- **gRPC Reflection** - Auto-discovery of services without `.proto` files
 - **TLS/mTLS Support** - Secure connections with client certificate validation
 - **Server Streaming** - Stream multiple responses with configurable delays
 - **Infinite Loop Streaming** - Continuous streaming with random order support
+- **Server Reflection** - grpcurl auto-discovery on plaintext and TLS ports
 
 ## Project Structure
 ```
@@ -65,6 +65,35 @@ bun run start:develop
 
 Note: Requires Bun >= 1.0. The provided Dockerfile uses `oven/bun:1.2.20-alpine`.
 
+### Enable TLS locally with .env
+You can enable TLS for the local Bun run by providing certificate paths via environment variables. Place them in a dotenv file (for example `.env.tls`) and load it with Bun.
+
+1) Generate local certs (once):
+```bash
+bash scripts/generate-web-auth-cert.sh
+```
+
+2) Create `.env.tls` (example):
+```dotenv
+GRPC_PORT_PLAINTEXT=50050
+GRPC_PORT_TLS=50051
+GRPC_TLS_ENABLED=true
+GRPC_TLS_CERT_PATH=certs/server.crt
+GRPC_TLS_KEY_PATH=certs/server.key
+GRPC_TLS_CA_PATH=certs/ca.crt
+GRPC_TLS_REQUIRE_CLIENT_CERT=false
+```
+
+3) Start the server with the env file:
+```bash
+# Important: pass --env-file before "run"
+bun --env-file= .env.tls run start
+```
+
+4) Verify TLS is active:
+- Logs include: `gRPC (TLS) listening on 50051`
+- `curl http://localhost:3000/admin/status` shows `grpc_ports.tls_enabled: true` and `grpc_ports.tls: 50051`
+
 ## Usage (Node / npx)
 If you prefer Node, you can run the server with Node or npx.
 
@@ -86,7 +115,7 @@ npm run start:node
 3) Develop with watch (two terminals)
 ```bash
 # Terminal A (TypeScript compile in watch mode)
-npm run build:watch:node
+npm run build:watch
 
 # Terminal B (Node >= 20 for --watch)
 npm run start:node:watch
@@ -104,38 +133,42 @@ npm run start:node:watch
 - This UI is static (no build tools) and is served by Express from `frontend/`.
 
 ### Docker
-Default (plaintext only):
+Default (with TLS enabled):
 ```bash
+# Generate certs first
+bash scripts/generate-web-auth-cert.sh
+
+# Start with TLS enabled
 docker compose up --build
 ```
 
-- Exposes: gRPC plaintext on `50050`, Admin HTTP on `3000`.
-- TLS port `50051` is not exposed by default to avoid confusion.
+- Exposes: gRPC plaintext on `50050`, gRPC TLS on `50051`, Admin HTTP on `3000`.
+- TLS is enabled by default in docker-compose.yml with certificates from `./certs/`.
 
 Healthcheck:
 - The container includes a healthcheck that hits `http://localhost:3000/liveness` inside the container.
 - View health: `docker ps` (look for `healthy`), or `docker inspect --format='{{json .State.Health}}' grpc-server-mock | jq .`
 
-Enable TLS by uncommenting the TLS lines in `docker-compose.yml` after generating certs:
+To disable TLS, comment out the TLS environment variables and port mapping in `docker-compose.yml`:
 ```bash
-# Generate certs under ./certs
-bash scripts/generate-web-auth-cert.sh
-
-# In docker-compose.yml, uncomment the 50051 port mapping and TLS env vars
-# Then start the stack
-docker compose up --build
+# Comment out in docker-compose.yml:
+# - "50051:50051"   # gRPC TLS
+# - GRPC_TLS_ENABLED=true
+# - GRPC_TLS_CERT_PATH=/app/certs/server.crt
+# - GRPC_TLS_KEY_PATH=/app/certs/server.key
+# - GRPC_TLS_CA_PATH=/app/certs/ca.crt
 ```
 
-grpcurl with TLS/mTLS (Docker TLS enabled):
+grpcurl with TLS/mTLS (Docker TLS enabled by default):
 ```bash
 # TLS (server-auth only) — uses server cert signed by local CA
-grpcurl -d '{"name":"Tom"}' \
+grpcurl -import-path protos -proto helloworld.proto -d '{"name":"Tom"}' \
   -cacert certs/ca.crt \
   localhost:50051 helloworld.Greeter/SayHello
 
-# mTLS (client-auth) — uncomment GRPC_TLS_CA_PATH in docker-compose.yml
+# mTLS (client-auth) — set GRPC_TLS_REQUIRE_CLIENT_CERT=true in docker-compose.yml
 # and restart the stack; then call with client cert/key
-grpcurl -d '{"name":"Tom"}' \
+grpcurl -import-path protos -proto helloworld.proto -d '{"name":"Tom"}' \
   -cacert certs/ca.crt \
   -cert certs/client.crt \
   -key certs/client.key \
@@ -144,7 +177,7 @@ grpcurl -d '{"name":"Tom"}' \
 
 3. Test with grpcurl (plaintext):
    ```bash
-   grpcurl -plaintext -d '{"name":"Tom"}' localhost:50050 helloworld.Greeter/SayHello
+   grpcurl -import-path protos -proto helloworld.proto -plaintext -d '{"name":"Tom"}' localhost:50050 helloworld.Greeter/SayHello
    ```
 
 4. Hot reload:
@@ -171,13 +204,45 @@ grpcurl -d '{"name":"Tom"}' \
 
 Quick tests with grpcurl (plaintext):
 ```bash
-grpcurl -plaintext -d '{"id":"err-unauth"}' localhost:50050 calendar.Events/GetEvent
-grpcurl -plaintext -d '{"id":"err-forbidden"}' localhost:50050 calendar.Events/GetEvent
-grpcurl -plaintext -d '{"id":"err-unavailable"}' localhost:50050 calendar.Events/GetEvent
-grpcurl -plaintext -d '{"id":"err-deadline"}' localhost:50050 calendar.Events/GetEvent
+grpcurl -import-path protos -proto calendar.proto -plaintext -d '{"id":"err-unauth"}' localhost:50050 calendar.Events/GetEvent
+grpcurl -import-path protos -proto calendar.proto -plaintext -d '{"id":"err-forbidden"}' localhost:50050 calendar.Events/GetEvent
+grpcurl -import-path protos -proto calendar.proto -plaintext -d '{"id":"err-unavailable"}' localhost:50050 calendar.Events/GetEvent
+grpcurl -import-path protos -proto calendar.proto -plaintext -d '{"id":"err-deadline"}' localhost:50050 calendar.Events/GetEvent
 ```
 
 Note: On Bun, file watching uses polling for stability.
+
+## Server Reflection
+
+The server exposes gRPC Server Reflection on both plaintext and TLS ports for tools like grpcurl to auto-discover services and message types.
+
+- How it works:
+  - The server wraps `@grpc/grpc-js` with `grpc-node-server-reflection` and unions descriptor files harvested from `@grpc/proto-loader` across all registered services.
+  - It preserves original `.proto` file names and canonicalizes common vendor imports (google/*) so dependency names match what grpcurl expects.
+  - When `.proto` files omit dependency lists, the server infers them from field type references and from service method input/output types to make the descriptor set dependency‑closed.
+  - If some dependencies are still unresolved, it safely falls back to returning the full descriptor pool so grpcurl can continue working.
+
+- Quick usage (no `-proto` flag required):
+  - List services: `grpcurl -plaintext localhost:50050 list`
+  - Describe service/method: `grpcurl -plaintext localhost:50050 describe helloworld.Greeter`
+  - TLS reflection: `grpcurl -cacert certs/ca.crt localhost:50051 list`
+
+- Import paths in your `.proto` files:
+  - Place your files under `protos/` and import using include‑root paths, e.g. `import "imports/common.proto";`.
+  - Avoid path traversal imports like `"../common.proto"` — `@grpc/proto-loader` resolves using include directories, not the importing file's directory.
+  - Use the provided third‑party fetch script for common vendor protos: `bun run protos:fetch` (adds `protos/google/...`, `protos/validate/...`, etc.).
+
+- Debugging reflection:
+  - Set `DEBUG_REFLECTION=1` to log descriptor names, dependencies, and resolution details.
+  - Check `GET /admin/status` for `loaded_services` and `protos.loaded`/`protos.skipped`.
+
+- Fallback to explicit protos (when desired):
+  - You can always call with explicit proto flags instead of reflection:
+    `grpcurl -import-path protos -proto helloworld.proto -plaintext ...`
+
+Run the example tests:
+- With reflection (default): `bun run test:readme-examples`
+- With explicit `-proto` imports: `bun run test:readme-examples:import-proto`
 
 ## TLS / mTLS
 
@@ -195,8 +260,8 @@ Environment variables:
 Behavior:
 - Plaintext server always binds on `GRPC_PORT_PLAINTEXT` (exposed by default in Docker).
 - If TLS is enabled and cert/key are valid, a TLS server also binds on `GRPC_PORT_TLS`.
-- In Docker, TLS port `50051` is exposed only if you uncomment its mapping in `docker-compose.yml`.
 - If TLS is enabled but certificate loading fails, plaintext still runs; Admin status shows `tls_error`.
+- Server gracefully falls back to plaintext-only mode when TLS certificates are missing or misconfigured.
 
 Admin UI (`/app/`) shows:
 - Plaintext and TLS port values
@@ -225,10 +290,10 @@ Both scripts output files in `./certs/` (gitignored):
 grpcurl examples using generated certs:
 ```bash
 # TLS (server-auth only)
-grpcurl -d '{"name":"Tom"}' -cacert certs/ca.crt localhost:50051 helloworld.Greeter/SayHello
+grpcurl -import-path protos -proto helloworld.proto -d '{"name":"Tom"}' -cacert certs/ca.crt localhost:50051 helloworld.Greeter/SayHello
 
 # mTLS (client-auth)
-grpcurl -d '{"name":"Tom"}' -cacert certs/ca.crt -cert certs/client.crt -key certs/client.key \
+grpcurl -import-path protos -proto helloworld.proto -d '{"name":"Tom"}' -cacert certs/ca.crt -cert certs/client.crt -key certs/client.key \
   localhost:50051 helloworld.Greeter/SayHello
 ```
 
@@ -288,7 +353,7 @@ responses:
 
 grpcurl example with Authorization header:
 ```bash
-grpcurl -plaintext \
+grpcurl -import-path protos -proto helloworld.proto -plaintext \
   -H 'authorization: Bearer token123' \
   -d '{"name":"Tom"}' localhost:50050 helloworld.Greeter/SayHello
 ```
@@ -311,7 +376,7 @@ grpcurl -plaintext \
 
 Quick test with grpcurl:
 ```bash
-grpcurl -plaintext -d '{"id":"next"}' localhost:50050 calendar.Events/GetEvent
+grpcurl -import-path protos -proto calendar.proto -plaintext -d '{"id":"next"}' localhost:50050 calendar.Events/GetEvent
 ```
 
 ## Error Simulation (gRPC Status)
@@ -428,22 +493,22 @@ responses:
 ### Testing Server Streaming
 ```bash
 # Test streaming messages
-grpcurl -plaintext -d '{"user_id":"user123"}' localhost:50050 streaming.StreamService/GetMessages
+grpcurl -import-path protos -proto streaming.proto -plaintext -d '{"user_id":"user123"}' localhost:50050 streaming.StreamService/GetMessages
 
 # Test streaming events
-grpcurl -plaintext -d '{"topic":"orders"}' localhost:50050 streaming.StreamService/WatchEvents
+grpcurl -import-path protos -proto streaming.proto -plaintext -d '{"topic":"orders"}' localhost:50050 streaming.StreamService/WatchEvents
 
 # Test with limit parameter
-grpcurl -plaintext -d '{"user_id":"test","limit":2}' localhost:50050 streaming.StreamService/GetMessages
+grpcurl -import-path protos -proto streaming.proto -plaintext -d '{"user_id":"test","limit":2}' localhost:50050 streaming.StreamService/GetMessages
 
 # Test error cases
-grpcurl -plaintext -d '{"user_id":"error_user"}' localhost:50050 streaming.StreamService/GetMessages
+grpcurl -import-path protos -proto streaming.proto -plaintext -d '{"user_id":"error_user"}' localhost:50050 streaming.StreamService/GetMessages
 
 # Test infinite loop with random order (Ctrl+C to stop)
-grpcurl -plaintext -d '{"user_id":"live_user"}' localhost:50050 streaming.StreamService/GetMessages
+grpcurl -import-path protos -proto streaming.proto -plaintext -d '{"user_id":"live_user"}' localhost:50050 streaming.StreamService/GetMessages
 
 # Test live monitoring events (Ctrl+C to stop)
-grpcurl -plaintext -d '{"topic":"live_monitoring"}' localhost:50050 streaming.StreamService/WatchEvents
+grpcurl -import-path protos -proto streaming.proto -plaintext -d '{"topic":"live_monitoring"}' localhost:50050 streaming.StreamService/WatchEvents
 ```
 
 ## Development
@@ -509,16 +574,16 @@ responses:
 ### Testing Templates
 ```bash
 # Test basic templating
-grpcurl -plaintext -d '{"name":"template"}' localhost:50050 helloworld.Greeter/SayHello
+grpcurl -import-path protos -proto helloworld.proto -plaintext -d '{"name":"template"}' localhost:50050 helloworld.Greeter/SayHello
 
 # Test with metadata
-grpcurl -plaintext \
+grpcurl -import-path protos -proto helloworld.proto -plaintext \
   -H 'authorization: Bearer token123' \
   -H 'user-agent: test-client' \
   -d '{"name":"metadata"}' localhost:50050 helloworld.Greeter/SayHello
 
 # Test streaming templates
-grpcurl -plaintext -d '{"user_id":"template_user"}' localhost:50050 streaming.StreamService/GetMessages
+grpcurl -import-path protos -proto streaming.proto -plaintext -d '{"user_id":"template_user"}' localhost:50050 streaming.StreamService/GetMessages
 ```
 
 ### Template Features
@@ -529,5 +594,6 @@ grpcurl -plaintext -d '{"user_id":"template_user"}' localhost:50050 streaming.St
 - **Nested Support**: Templates work in nested objects and arrays
 
 ## Roadmap
+- **gRPC Reflection** - Auto-discovery of services without `.proto` files
 - Create, edit, and validate rule bodies inline with schema validation.
 - Preview matched response given sample request and metadata.

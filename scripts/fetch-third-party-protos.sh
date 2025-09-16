@@ -7,6 +7,7 @@ DST="$ROOT_DIR/protos"
 mkdir -p \
   "$DST/google/api" \
   "$DST/google/type" \
+  "$DST/google/rpc" \
   "$DST/google/longrunning" \
   "$DST/google/protobuf" \
   "$DST/validate" \
@@ -39,6 +40,33 @@ for f in color date datetime expr interval latlng money phone_number postal_addr
     echo "(skip) $out not found at upstream"
   else
     echo "-> $out"
+  fi
+done
+
+echo "Fetching google/rpc protos..."
+# Try to fetch a common set; skip gracefully if not found at the path
+for f in \
+  code.proto \
+  status.proto \
+  error_details.proto \
+  retry_info.proto \
+  debug_info.proto \
+  quota_failure.proto \
+  bad_request.proto \
+  request_info.proto \
+  resource_info.proto \
+  help.proto \
+  localized_message.proto \
+  precondition_failure.proto; do
+  out="$DST/google/rpc/${f}"
+  url_master="https://raw.githubusercontent.com/googleapis/googleapis/master/google/rpc/${f}"
+  url_main="https://raw.githubusercontent.com/googleapis/googleapis/main/google/rpc/${f}"
+  if curl -fsSL -o "$out" "$url_master"; then
+    echo "-> $out (master)"
+  elif curl -fsSL -o "$out" "$url_main"; then
+    echo "-> $out (main)"
+  else
+    echo "(skip) $out not found at upstream"
   fi
 done
 

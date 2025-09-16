@@ -1,0 +1,13 @@
+syntax = "proto3";
+package abs;
+
+import "imports/common.proto";
+
+message AbsRequest {
+  imports.common.CommonMsg msg = 1;
+}
+
+service AbsService {
+  rpc DoAbs(AbsRequest) returns (imports.common.CommonMsg);
+}
+

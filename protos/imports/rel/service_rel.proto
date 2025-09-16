@@ -1,0 +1,13 @@
+syntax = "proto3";
+package imports.rel;
+
+// Import via project-root include path to support proto-loader includeDirs
+import "imports/common.proto";
+
+message RelRequest {
+  imports.common.CommonMsg msg = 1;
+}
+
+service RelService {
+  rpc DoRel(RelRequest) returns (imports.common.CommonMsg);
+}

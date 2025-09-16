@@ -2,7 +2,8 @@ import * as grpc from "@grpc/grpc-js";
 import fs from "fs";
 import path from "path";
 import * as protoLoader from "@grpc/proto-loader";
-import wrapServerWithReflection from "grpc-node-server-reflection";
+// Use our robust reflection wrapper that unions descriptors across services
+import wrapServerWithReflection from "./reflection.js";
 import protobuf from "protobufjs";
 import type { RuleDoc } from "../domain/types.js";
 import { selectResponse } from "../domain/usecases/selectResponse.js";
@@ -204,8 +205,8 @@ export function buildHandlersFromRoot(rootNamespace: protobuf.Root, rulesIndex: 
 
 export async function createGrpcServer(rootNamespace: protobuf.Root, rulesIndex: RulesIndex, log: (...a: any[]) => void, err: (...a: any[]) => void, opts?: { protoDir?: string; entryFiles?: string[] }) {
   const servicesMap = buildHandlersFromRoot(rootNamespace, rulesIndex, log, err);
-  // Wrap server with reflection so grpcurl can discover services without -proto
-  const s = (wrapServerWithReflection as unknown as (srv: grpc.Server) => grpc.Server)(new grpc.Server());
+  // Prepare raw server; will wrap with reflection after loading package definitions
+  const rawServer = new grpc.Server();
 
   // Load proto definitions via @grpc/proto-loader so reflection can inspect fileDescriptorProtos
   const filesFromRoot = (rootNamespace as any).files as string[] | undefined;
@@ -215,15 +216,22 @@ export async function createGrpcServer(rootNamespace: protobuf.Root, rulesIndex:
     // This avoids issues with proto-loader trying to resolve all transitive deps
     let files: string[] | undefined = undefined;
     if (opts?.entryFiles && opts.entryFiles.length) {
+      // Use only the entry files; proto-loader will resolve imports using includeDirs.
       files = opts.entryFiles.map(f => path.resolve(f));
     } else if (opts?.protoDir) {
-      // Only load top-level proto files, not subdirectories like google/
+      // No explicit entry files; include only top‑level .proto files in protoDir
+      // (exclude nested vendor trees like envoy/* that may be incomplete).
       const base = path.resolve(opts.protoDir);
-      const topLevelFiles = fs.readdirSync(base)
-        .filter(f => f.endsWith(".proto"))
-        .map(f => path.join(base, f));
-      files = topLevelFiles.length ? topLevelFiles : undefined;
+      const top = fs.readdirSync(base)
+        .map(name => path.join(base, name))
+        .filter(p => {
+          try { return fs.statSync(p).isFile() && p.endsWith('.proto'); } catch { return false; }
+        });
+      files = top.length ? top : undefined;
     } else if (filesFromRoot && filesFromRoot.length) {
+      // Recursively include all .proto files under protoDir so reflection has
+      // full descriptors for transitive dependencies (e.g., google/type/*).
+      // (Only used when protoDir is unavailable.)
       // Filter to only main proto files, not dependencies
       files = filesFromRoot.filter(f => {
         const rel = opts?.protoDir ? path.relative(opts.protoDir, f) : path.basename(f);
@@ -232,39 +240,70 @@ export async function createGrpcServer(rootNamespace: protobuf.Root, rulesIndex:
     }
 
     if (files && files.length) {
-      // Build include paths: protoDir as the primary include path
+      // Build include paths: protoDir as the primary include path (+ common subdirs if present)
       let includeDirs: string[] = [];
       if (opts?.protoDir) {
         const base = path.resolve(opts.protoDir);
         includeDirs = [base];
+        const pushIfDir = (d: string) => { try { if (fs.existsSync(d) && fs.statSync(d).isDirectory()) includeDirs.push(d); } catch {} };
+        // Add all first-level subdirectories under base
+        try {
+          for (const name of fs.readdirSync(base)) {
+            const p = path.join(base, name);
+            try { if (fs.statSync(p).isDirectory()) pushIfDir(p); } catch {}
+          }
+        } catch {}
+        // Also add second-level subdirectories under base/google (api, protobuf, rpc, type, etc.) if present
+        const googleDir = path.join(base, 'google');
+        try {
+          if (fs.existsSync(googleDir) && fs.statSync(googleDir).isDirectory()) {
+            for (const name of fs.readdirSync(googleDir)) {
+              const p = path.join(googleDir, name);
+              try { if (fs.statSync(p).isDirectory()) pushIfDir(p); } catch {}
+            }
+          }
+        } catch {}
+        // Deduplicate
+        includeDirs = Array.from(new Set(includeDirs));
       }
       
       log(`(info) Reflection: proto-loader files: ${files.map(f => path.relative(opts?.protoDir || process.cwd(), f)).join(", ")}`);
       log(`(info) Reflection: includeDirs: ${includeDirs.map(d => path.relative(process.cwd(), d)).join(", ")}`);
       
-      // Load files individually to handle import resolution issues gracefully
-      const packageDefinitions: any[] = [];
-      for (const file of files) {
+      // Load ALL entry files in a single call so proto-loader retains a complete
+      // descriptor set (including transitive dependencies like google/type/*).
+      // Loading individually and shallow-merging can drop fileDescriptorProtos.
+      try {
+        const pkgDef = protoLoader.loadSync(files, {
+          includeDirs,
+          keepCase: true,
+          longs: String,
+          enums: String,
+          defaults: false,
+          oneofs: true,
+        });
+        packageObject = grpc.loadPackageDefinition(pkgDef);
         try {
-          const pkgDef = protoLoader.loadSync([file], {
-            includeDirs,
-            keepCase: true,
-            longs: String,
-            enums: String,
-            defaults: false,
-            oneofs: true,
-          });
-          packageDefinitions.push(pkgDef);
-          log(`(info) Reflection: loaded ${path.relative(opts?.protoDir || process.cwd(), file)}`);
-        } catch (e: any) {
-          log(`(warn) Reflection: failed to load ${path.relative(opts?.protoDir || process.cwd(), file)}: ${e.message}`);
+          const hasDT = !!(packageObject as any)?.google?.type?.DateTime;
+          const dt: any = (packageObject as any)?.google?.type?.DateTime;
+          const fdpLen = Array.isArray(dt?.fileDescriptorProtos) ? dt.fileDescriptorProtos.length : 0;
+          log(`(info) Reflection: google.type.DateTime present: ${hasDT} descriptors: ${fdpLen}`);
+          const calSvc: any = (packageObject as any)?.calendar?.Events;
+          const calSvcDef: any = calSvc?.service;
+          if (calSvcDef) {
+            const getEvent = calSvcDef?.getEvent;
+            const reqType: any = getEvent?.requestType;
+            const resType: any = getEvent?.responseType;
+            const reqLen = Array.isArray(reqType?.fileDescriptorProtos) ? reqType.fileDescriptorProtos.length : 0;
+            const resLen = Array.isArray(resType?.fileDescriptorProtos) ? resType.fileDescriptorProtos.length : 0;
+            log(`(info) Reflection: calendar.Events/GetEvent descriptors — req: ${reqLen} res: ${resLen}`);
+          }
+        } catch {}
+        for (const f of files) {
+          log(`(info) Reflection: loaded ${path.relative(opts?.protoDir || process.cwd(), f)}`);
         }
-      }
-      
-      // Merge all package definitions
-      if (packageDefinitions.length > 0) {
-        const merged = Object.assign({}, ...packageDefinitions);
-        packageObject = grpc.loadPackageDefinition(merged);
+      } catch (e: any) {
+        log(`(warn) Reflection: failed to load proto definitions: ${e?.message || e}`);
       }
     }
   } catch (e) {
@@ -273,6 +312,11 @@ export async function createGrpcServer(rootNamespace: protobuf.Root, rulesIndex:
   }
 
   function lowerFirst(s: string) { return s ? s.charAt(0).toLowerCase() + s.slice(1) : s; }
+
+  // Wrap server with reflection, providing the loaded packageObject.
+  // We intentionally avoid seeding with protobufjs-generated descriptors,
+  // as they collapse google/* files and break dependency names expected by grpcurl.
+  const s = wrapServerWithReflection(rawServer, { packageObject });
 
   // Helper to get service definition object from loaded package by FQ name
   function getServiceDef(fullServiceName: string): any | null {

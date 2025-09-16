@@ -1,0 +1,14 @@
+syntax = "proto3";
+package imports.abs;
+
+// Project-root style import (resolved via includeDirs)
+import "imports/common.proto";
+
+message AbsRequest {
+  imports.common.CommonMsg msg = 1;
+}
+
+service AbsService {
+  rpc DoAbs(AbsRequest) returns (imports.common.CommonMsg);
+}
+

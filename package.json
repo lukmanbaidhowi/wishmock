@@ -13,15 +13,14 @@
     "dist/",
     "bin/",
     "frontend/",
-    "README.md",
-    "AGENTS.md"
+    "README.md"
   ],
   "engines": {
     "node": ">=18"
   },
   "dependencies": {
     "@grpc/grpc-js": "^1.10.6",
-    "@grpc/proto-loader": "^0.7.13",
+    "@grpc/proto-loader": "^0.8.0",
     "chokidar": "^3.6.0",
     "express": "^4.19.2",
     "grpc-node-server-reflection": "^1.0.2",
@@ -39,16 +38,16 @@
     "build": "tsc -p tsconfig.json",
     "start": "bun dist/app.js",
     "build:watch": "tsc -w -p tsconfig.json",
-    "start:watch": "bun --watch dist/app.js",
     "start:develop": "bun scripts/dev.mjs",
     "start:develop:ts": "bun --watch src/app.ts",
     "protos:fetch": "bash scripts/fetch-third-party-protos.sh",
     "test": "bun test",
     "test:watch": "bun test --watch",
-    "build:node": "tsc -p tsconfig.json",
+    "coverage:html": "bun scripts/coverage-html.mjs",
     "start:node": "tsc -p tsconfig.json && node dist/app.js",
-    "build:watch:node": "tsc -w -p tsconfig.json",
     "start:node:watch": "node --watch dist/app.js",
+    "test:readme-examples": "bash scripts/test-readme-examples.sh",
+    "test:readme-examples:import-proto": "bash scripts/test-readme-examples-import-proto.sh",
     "prepublishOnly": "tsc -p tsconfig.json"
   }
 }

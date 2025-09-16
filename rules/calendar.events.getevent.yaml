@@ -10,7 +10,7 @@ responses:
     trailers:
       grpc-status: 16            # UNAUTHENTICATED
       grpc-message: "Missing or invalid token"
-      www-authenticate: "Bearer realm=grpc-server-mock"
+      www-authenticate: "Bearer realm=wishmock"
   - when:
       request.id: "err-forbidden"
     body: {}

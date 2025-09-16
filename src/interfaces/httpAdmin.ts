@@ -89,6 +89,6 @@ export function createAdminApp(params: AdminAppParams) {
   setupServiceRoutes(app, params);
   setupHealthChecks(app);
   
-  app.listen(httpPort, '0.0.0.0', () => console.log(`[grpc-server-mock] HTTP admin on ${httpPort}`));
+  app.listen(httpPort, '0.0.0.0', () => console.log(`[wishmock] HTTP admin on ${httpPort}`));
   return app;
 }

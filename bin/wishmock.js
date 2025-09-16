@@ -5,8 +5,8 @@
   try {
     await import('../dist/app.js');
   } catch (e) {
-    console.error('[grpc-server-mock] Failed to start. Did you build?');
-    console.error('[grpc-server-mock] Try: npm run start:node (which builds)');
+    console.error('[wishmock] Failed to start. Did you build?');
+    console.error('[wishmock] Try: npm run start:node (which builds)');
     console.error(e);
     process.exit(1);
   }

@@ -1,4 +1,4 @@
-# Mock gRPC Server with protobufjs & Hot Reload
+# wishmock
 
 This project is a simple gRPC mock server built with Bun 1.x (tested with 1.2.20), `@grpc/grpc-js`, and `protobufjs`.  
 It allows you to load `.proto` files directly (no conversion needed) and define mock rules in YAML/JSON.  
@@ -18,7 +18,7 @@ Supports hot reload for both proto files and rules.
 
 ## Project Structure
 ```
-grpc-server-mock/
+wishmock/
 ├─ protos/                 # put your proto files here
 │  └─ helloworld.proto
 ├─ rules/                  # put your rule files here
@@ -106,11 +106,9 @@ If you prefer Node, you can run the server with Node or npx.
 
 1) Run directly via npx (after publish)
 ```bash
-npx grpc-server-mock
-# alias still available:
-# npx mock-grpc
+npx wishmock
 # or if published under a scope/name variant:
-# npx @your-scope/grpc-server-mock
+# npx @your-scope/wishmock
 ```
 
 2) Local Node run (without Bun)
@@ -164,7 +162,7 @@ docker compose up --build
 
 Healthcheck:
 - The container includes a healthcheck that hits `http://localhost:3000/liveness` inside the container.
-- View health: `docker ps` (look for `healthy`), or `docker inspect --format='{{json .State.Health}}' grpc-server-mock | jq .`
+- View health: `docker ps` (look for `healthy`), or `docker inspect --format='{{json .State.Health}}' wishmock | jq .`
 
 To disable TLS, comment out the TLS environment variables and port mapping in `docker-compose.yml`:
 ```bash

@@ -56,7 +56,7 @@ fi
 export HTTP_PORT
 export GRPC_PORT_PLAINTEXT="$GRPC_PORT"
 
-LOG_FILE="/tmp/mock-grpc.test.out"
+LOG_FILE="/tmp/wishmock.test.out"
 rm -f "$LOG_FILE"
 
 echo "Starting mock server with RUNNER=$RUNNER (HTTP_PORT=$HTTP_PORT, GRPC_PORT=$GRPC_PORT)" | tee -a "$LOG_FILE"

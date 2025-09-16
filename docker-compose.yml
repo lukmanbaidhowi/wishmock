@@ -1,9 +1,9 @@
 version: "3.9"
 
 services:
-  grpc-server-mock:
+  wishmock:
     build: .
-    container_name: grpc-server-mock
+    container_name: wishmock
     ports:
       - "50050:50050"   # gRPC plaintext
       - "50051:50051"   # gRPC TLS
@@ -30,10 +30,10 @@ services:
       retries: 10
       start_period: 10s
     networks:
-        - grpc-mock-net
+        - wishmock-net
 
 networks:
-  grpc-mock-net:
+  wishmock-net:
       driver: bridge
       ipam:
         config:

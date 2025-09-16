@@ -1,13 +1,12 @@
 {
-  "name": "grpc-server-mock",
+  "name": "wishmock",
   "type": "module",
   "description": "Bun/Node gRPC mock server with protobufjs, hot reload, and rule-based responses",
   "version": "0.1.0",
   "license": "MIT",
   "main": "dist/app.js",
   "bin": {
-    "mock-grpc": "bin/mock-grpc.js",
-    "grpc-server-mock": "bin/mock-grpc.js"
+    "wishmock": "bin/wishmock.js"
   },
   "files": [
     "dist/",

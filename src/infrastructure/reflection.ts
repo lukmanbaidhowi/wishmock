@@ -292,7 +292,7 @@ export default function wrapServerWithReflection(server: grpc.Server, opts?: { p
       if (DEBUG) {
         try {
           // eslint-disable-next-line no-console
-          console.log("[grpc-server-mock] (debug) Harvested descriptors from packageObject:", {
+          console.log("[wishmock] (debug) Harvested descriptors from packageObject:", {
             hasGoogle: !!(po as any)?.google,
             hasDateTime: !!(po as any)?.google?.type?.DateTime,
             dtFdps: Array.isArray((po as any)?.google?.type?.DateTime?.fileDescriptorProtos)
@@ -428,7 +428,7 @@ export default function wrapServerWithReflection(server: grpc.Server, opts?: { p
                       }
                     } catch {}
                   }
-                  console.log('[grpc-server-mock] (debug) Reflection describe (method set+remap):', {
+                  console.log('[wishmock] (debug) Reflection describe (method set+remap):', {
                     symbol: fileContainingSymbol,
                     returned: out.length,
                     files: outNames,
@@ -454,7 +454,7 @@ export default function wrapServerWithReflection(server: grpc.Server, opts?: { p
                 for (const b of files) {
                   try { names.push(FileDescriptorProto.deserializeBinary(b).getName()); } catch {}
                 }
-                console.log("[grpc-server-mock] (debug) Reflection describe (full set):", {
+                console.log("[wishmock] (debug) Reflection describe (full set):", {
                   symbol: fileContainingSymbol,
                   returned: files.length,
                   files: names,
@@ -545,7 +545,7 @@ export default function wrapServerWithReflection(server: grpc.Server, opts?: { p
                   if (n === target) depsBy[n] = f.getDependencyList();
                 } catch {}
               }
-              console.log("[grpc-server-mock] (debug) Reflection describe:", {
+              console.log("[wishmock] (debug) Reflection describe:", {
                 symbol: fileContainingSymbol,
                 target,
                 returned: result.length,

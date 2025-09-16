@@ -36,8 +36,8 @@ let protoReport: ProtoFileStatus[] = [];
 const rulesIndex = new Map<string, any>();
 
 // --- util: logging ---
-const log = (...a: any[]) => console.log("[grpc-server-mock]", ...a);
-const err = (...a: any[]) => console.error("[grpc-server-mock]", ...a);
+const log = (...a: any[]) => console.log("[wishmock]", ...a);
+const err = (...a: any[]) => console.error("[wishmock]", ...a);
 
 async function startGrpc(rootNamespace: protobuf.Root) {
   // Shutdown existing servers if any

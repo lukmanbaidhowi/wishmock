@@ -146,6 +146,19 @@ run_call "Calendar err-deadline" \
 run_call "Calendar success (next)" \
   grpcurl -plaintext -d '{"id":"next"}' "localhost:${GRPC_PORT}" calendar.Events/GetEvent
 
+# Reflection tests for services in protos/ that import from imports/
+run_call "RelService describe (reflection)" \
+  grpcurl -plaintext "localhost:${GRPC_PORT}" describe rel.RelService
+
+run_call "AbsService describe (reflection)" \
+  grpcurl -plaintext "localhost:${GRPC_PORT}" describe abs.AbsService
+
+run_call "RelService DoRel (reflection)" \
+  grpcurl -plaintext -d '{"msg":{"note":"hi"}}' "localhost:${GRPC_PORT}" rel.RelService/DoRel
+
+run_call "AbsService DoAbs (reflection)" \
+  grpcurl -plaintext -d '{"msg":{"note":"hi"}}' "localhost:${GRPC_PORT}" abs.AbsService/DoAbs
+
 # Optional TLS tests
 if [[ "$TLS_TESTS" == "true" ]]; then
   sleep 0.5

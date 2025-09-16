@@ -1,0 +1,7 @@
+syntax = "proto3";
+package imports.common;
+
+message CommonMsg {
+  string note = 1;
+}
+

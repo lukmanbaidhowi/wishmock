@@ -6,6 +6,133 @@ import { FileDescriptorProto } from "google-protobuf/google/protobuf/descriptor_
 
 const DEBUG = process.env.DEBUG_REFLECTION === "1";
 
+// Vendor roots and dependency canonicalization rules
+const VENDOR_ROOTS = [
+  "/google/",
+  "/validate/",
+  "/opentelemetry/",
+  "/envoy/",
+  "/protoc-gen-openapiv2/",
+];
+
+const DEP_CANON_RULES: { prefix: string; target: string }[] = [
+  { prefix: "google/type/", target: "google_type.proto" },
+  { prefix: "google/protobuf/", target: "google_protobuf.proto" },
+  { prefix: "google/api/", target: "google_api.proto" },
+  { prefix: "google/rpc/", target: "google_rpc.proto" },
+];
+
+function toPosix(name: string): string {
+  return String(name || "").replace(/\\/g, "/");
+}
+
+function canonicalFileKey(original: string): string {
+  const posix = toPosix(original);
+  for (const r of VENDOR_ROOTS) {
+    const idx = posix.indexOf(r);
+    if (idx >= 0) return posix.slice(idx + 1);
+  }
+  const base = posix.substring(posix.lastIndexOf("/") + 1);
+  return base || posix;
+}
+
+function decodeFdpSafe(buf: Uint8Array): FileDescriptorProto | null {
+  try { return FileDescriptorProto.deserializeBinary(buf); } catch { return null; }
+}
+
+function canonicalizeDependency(dep: string, presentNames: Set<string>): string {
+  if (presentNames.has(dep)) return dep;
+  for (const rule of DEP_CANON_RULES) {
+    if (dep.startsWith(rule.prefix)) return rule.target;
+  }
+  return dep;
+}
+
+// Infer dependencies based on field type references
+function inferDepsFromTypes(fileName: string, fileObj: any): string[] {
+  try {
+    const deps = new Set<string>();
+    const add = (d: string) => { if (d) deps.add(d); };
+    for (const m of (fileObj.getMessageTypeList?.() || [])) {
+      for (const fld of (((m as any).getFieldList?.()) || [])) {
+        try {
+          const tnRaw = typeof fld.getTypeName === 'function' ? String(fld.getTypeName()) : '';
+          const tn = tnRaw.replace(/^\./, '');
+          if (tn.startsWith('google.protobuf.')) add('google_protobuf.proto');
+          else if (tn.startsWith('google.type.')) add('google_type.proto');
+          else if (tn.startsWith('google.api.')) add('google_api.proto');
+          else if (tn.startsWith('google.rpc.')) add('google_rpc.proto');
+        } catch {}
+      }
+    }
+    deps.delete(fileName);
+    return Array.from(deps);
+  } catch { return []; }
+}
+
+// Normalize consolidated vendor descriptor packages and type references
+function normalizeConsolidatedFile(f: any) {
+  try {
+    const name = f.getName?.() || '';
+    const pkg = typeof f.getPackage === 'function' ? f.getPackage() : '';
+
+    if (name === 'google_protobuf.proto') {
+      try {
+        const keepMessages = new Set(['Timestamp','Duration','Any','FloatValue']);
+        const msgs = f.getMessageTypeList?.() || [];
+        const kept = msgs.filter((m: any) => keepMessages.has(m.getName?.())) as any[];
+        if (typeof f.setMessageTypeList === 'function') f.setMessageTypeList(kept);
+        const enums = f.getEnumTypeList?.() || [];
+        const keptEnums = enums.filter((e: any) => (e.getName?.() || '') !== 'NullValue');
+        if (typeof f.setEnumTypeList === 'function') f.setEnumTypeList(keptEnums);
+      } catch {}
+      if (!String(pkg).startsWith('google.')) {
+        try { if (typeof f.setPackage === 'function') f.setPackage('google.protobuf'); } catch {}
+      }
+      return;
+    }
+
+    if (name === 'google_type.proto') {
+      if (!String(pkg).startsWith('google.')) {
+        try { if (typeof f.setPackage === 'function') f.setPackage('google.type'); } catch {}
+      }
+      try {
+        const localMsgs = new Set<string>((f.getMessageTypeList?.() || []).map((mm: any) => String(mm.getName?.())));
+        const nestedMap = new Map<string, string>();
+        for (const mm of (f.getMessageTypeList?.() || [])) {
+          const parent = String(mm.getName?.());
+          const nested = ((mm as any).getNestedTypeList?.() || []);
+          for (const nt of nested) {
+            try {
+              const child = String(nt.getName?.());
+              if (child) nestedMap.set(child, `.google.type.${parent}.${child}`);
+            } catch {}
+          }
+        }
+        const wktNames = new Set<string>(['Duration','Timestamp','Any','FloatValue','Struct','Value','ListValue']);
+        for (const m of (f.getMessageTypeList?.() || [])) {
+          for (const fld of (((m as any).getFieldList?.()) || [])) {
+            try {
+              const raw = typeof (fld as any).getTypeName === 'function' ? String((fld as any).getTypeName()) : '';
+              if (!raw || typeof (fld as any).setTypeName !== 'function') continue;
+              const noDot = raw.replace(/^\./, '');
+              if (noDot.startsWith('protobuf.')) {
+                (fld as any).setTypeName('.google.' + noDot);
+              } else if (noDot.startsWith('type.')) {
+                (fld as any).setTypeName('.google.' + noDot);
+              } else if (!noDot.includes('.')) {
+                if (nestedMap.has(noDot)) (fld as any).setTypeName(nestedMap.get(noDot));
+                else if (localMsgs.has(noDot)) (fld as any).setTypeName('.google.type.' + noDot);
+                else if (wktNames.has(noDot)) (fld as any).setTypeName('.google.protobuf.' + noDot);
+              }
+            } catch {}
+          }
+        }
+      } catch {}
+    }
+  } catch {}
+}
+
 // A reflection wrapper that unions file descriptors across all added services
 // so tools like grpcurl can resolve transitive dependencies (e.g., google/type/*).
 export default function wrapServerWithReflection(server: grpc.Server, opts?: { packageObject?: any, descriptorBuffers?: (Uint8Array|Buffer)[] }): grpc.Server {
@@ -24,16 +151,7 @@ export default function wrapServerWithReflection(server: grpc.Server, opts?: { p
       if (!fdByName.has(name)) fdByName.set(name, buf);
     };
 
-    const canonical = (name: string): string => {
-      const posix = (name || "").replace(/\\/g, "/");
-      const roots = ["/google/", "/validate/", "/opentelemetry/", "/envoy/", "/protoc-gen-openapiv2/"];
-      for (const r of roots) {
-        const idx = posix.indexOf(r);
-        if (idx >= 0) return posix.slice(idx + 1); // drop leading slash
-      }
-      const base = posix.substring(posix.lastIndexOf("/") + 1);
-      return base || posix;
-    };
+    const canonical = (name: string): string => canonicalFileKey(name);
 
     for (const b64 of fileDescriptorSet) {
       const buf = Buffer.from(b64, "base64");
@@ -47,9 +165,8 @@ export default function wrapServerWithReflection(server: grpc.Server, opts?: { p
       const posixName = (fileName || "").replace(/\\/g, "/");
       const baseName = posixName ? posixName.substring(posixName.lastIndexOf("/") + 1) : "";
       // Try to strip well-known vendor prefixes to get a stable relative name
-      const vendorRoots = ["/google/", "/validate/", "/opentelemetry/", "/envoy/", "/protoc-gen-openapiv2/"];
       let vendorRel = "";
-      for (const root of vendorRoots) {
+      for (const root of VENDOR_ROOTS) {
         const idx = posixName.indexOf(root);
         if (idx >= 0) { vendorRel = posixName.slice(idx + 1); break; }
       }
@@ -207,116 +324,64 @@ export default function wrapServerWithReflection(server: grpc.Server, opts?: { p
             const method = getMethodDefinitionFromServicesByFileContainingSymbol(services, fileContainingSymbol);
             const files = (method as any)?.requestType?.fileDescriptorProtos as Uint8Array[] | undefined;
             if (Array.isArray(files) && files.length) {
-              // Remap dependency names from concrete google/* file paths to the
-              // consolidated protobufjs file names (google_type.proto, google_protobuf.proto).
               const originalBuffers = files.map(b => Buffer.from(b));
               const decoded: { f: any, buf: Uint8Array }[] = [];
               const presentNames = new Set<string>();
+              const fileByPkg = new Map<string, string>();
               for (const b of originalBuffers) {
-                try { const f = FileDescriptorProto.deserializeBinary(b); decoded.push({ f, buf: b }); presentNames.add(f.getName()); } catch { decoded.push({ f: null, buf: b }); }
+                const f = decodeFdpSafe(b);
+                decoded.push({ f, buf: b });
+                if (f) {
+                  const nm = String(f.getName?.());
+                  const pkg = String((f as any).getPackage?.() || '');
+                  presentNames.add(nm);
+                  if (pkg) fileByPkg.set(pkg, nm);
+                }
               }
-              const mapDep = (d: string): string => {
-                if (presentNames.has(d)) return d;
-                if (d.startsWith('google/type/')) return 'google_type.proto';
-                if (d.startsWith('google/protobuf/')) return 'google_protobuf.proto';
-                if (d.startsWith('google/api/')) return 'google_api.proto';
-                if (d.startsWith('google/rpc/')) return 'google_rpc.proto';
-                return d;
-              };
               const remapped: Uint8Array[] = [];
-              // Helper to infer dependencies from field type references
-              const inferDepsFromTypes = (fileName: string, fileObj: any): string[] => {
-                try {
-                  const deps = new Set<string>();
-                  const add = (d: string) => { if (d) deps.add(d); };
-                  const pkg = String(fileObj.getPackage?.() || '');
-                  for (const m of (fileObj.getMessageTypeList?.() || [])) {
-                    for (const fld of (((m as any).getFieldList?.()) || [])) {
-                      try {
-                        const tnRaw = typeof fld.getTypeName === 'function' ? String(fld.getTypeName()) : '';
-                        const tn = tnRaw.replace(/^\./, '');
-                        if (tn.startsWith('google.protobuf.')) add('google_protobuf.proto');
-                        else if (tn.startsWith('google.type.')) add('google_type.proto');
-                        else if (tn.startsWith('google.api.')) add('google_api.proto');
-                        else if (tn.startsWith('google.rpc.')) add('google_rpc.proto');
-                      } catch {}
-                    }
-                  }
-                  // Avoid self-dependency
-                  deps.delete(fileName);
-                  return Array.from(deps);
-                } catch { return []; }
-              };
               for (const { f, buf } of decoded) {
                 if (!f) { remapped.push(buf); continue; }
                 try {
-                  // Optionally prune problematic WKT types not needed by current symbol
-                  const name = f.getName?.() || '';
-                  if (name === 'google_protobuf.proto') {
+                  normalizeConsolidatedFile(f);
+                  const fileName = String(f.getName?.() || '');
+                  let deps = f.getDependencyList?.() || [];
+                  if (!deps || deps.length === 0) {
+                    const inferred = new Set<string>(inferDepsFromTypes(fileName, f));
+                    // Also infer deps by package ownership of referenced types
                     try {
-                      const keepMessages = new Set(['Timestamp','Duration','Any','FloatValue']);
-                      const msgs = f.getMessageTypeList();
-                      const kept = msgs.filter((m: any) => keepMessages.has(m.getName?.())) as any[];
-                      if (typeof (f as any).setMessageTypeList === 'function') (f as any).setMessageTypeList(kept);
-                      const enums = f.getEnumTypeList?.() || [];
-                      const keptEnums = enums.filter((e: any) => (e.getName?.() || '') !== 'NullValue');
-                      if (typeof (f as any).setEnumTypeList === 'function') (f as any).setEnumTypeList(keptEnums);
-                    } catch {}
-                  }
-                  // Fix package and type references for consolidated google files
-                  const pkg = typeof (f as any).getPackage === 'function' ? (f as any).getPackage() : '';
-                  if (name === 'google_type.proto') {
-                    if (!String(pkg).startsWith('google.')) {
-                      try { if (typeof (f as any).setPackage === 'function') (f as any).setPackage('google.type'); } catch {}
-                    }
-                    try {
-                      const localMsgs = new Set<string>((f.getMessageTypeList?.() || []).map((mm: any) => String(mm.getName?.())));
-                      // Build map for nested types: ShortCode -> .google.type.PhoneNumber.ShortCode
-                      const nestedMap = new Map<string, string>();
-                      for (const mm of (f.getMessageTypeList?.() || [])) {
-                        const parent = String(mm.getName?.());
-                        const nested = ((mm as any).getNestedTypeList?.() || []);
-                        for (const nt of nested) {
-                          try {
-                            const child = String(nt.getName?.());
-                            if (child) nestedMap.set(child, `.google.type.${parent}.${child}`);
-                          } catch {}
-                        }
-                      }
-                      const wktNames = new Set<string>(['Duration','Timestamp','Any','FloatValue','Struct','Value','ListValue']);
                       for (const m of (f.getMessageTypeList?.() || [])) {
                         for (const fld of (((m as any).getFieldList?.()) || [])) {
-                          try {
-                            const raw = typeof fld.getTypeName === 'function' ? String(fld.getTypeName()) : '';
-                            if (!raw || typeof (fld as any).setTypeName !== 'function') continue;
-                            const noDot = raw.replace(/^\./, '');
-                            if (noDot.startsWith('protobuf.')) {
-                              (fld as any).setTypeName('.google.' + noDot);
-                            } else if (noDot.startsWith('type.')) {
-                              (fld as any).setTypeName('.google.' + noDot);
-                            } else if (!noDot.includes('.')) {
-                              // Bare type name: resolve against nested map, then local top-level, then WKTs
-                              if (nestedMap.has(noDot)) (fld as any).setTypeName(nestedMap.get(noDot));
-                              else if (localMsgs.has(noDot)) (fld as any).setTypeName('.google.type.' + noDot);
-                              else if (wktNames.has(noDot)) (fld as any).setTypeName('.google.protobuf.' + noDot);
+                          const tnRaw = typeof (fld as any).getTypeName === 'function' ? String((fld as any).getTypeName()) : '';
+                          const tn = tnRaw.replace(/^\./, '');
+                          const pkg = tn.includes('.') ? tn.split('.').slice(0, -1).join('.') : '';
+                          if (pkg && fileByPkg.has(pkg)) {
+                            const depFile = fileByPkg.get(pkg)!;
+                            if (depFile && depFile !== fileName) inferred.add(depFile);
+                          }
+                        }
+                      }
+                      // Also infer from service method request/response types
+                      for (const svc of (f.getServiceList?.() || [])) {
+                        for (const meth of (((svc as any).getMethodList?.()) || [])) {
+                          const inRaw = typeof (meth as any).getInputType === 'function' ? String((meth as any).getInputType()) : '';
+                          const outRaw = typeof (meth as any).getOutputType === 'function' ? String((meth as any).getOutputType()) : '';
+                          const addType = (raw: string) => {
+                            const tn = raw.replace(/^\./, '');
+                            const pkg = tn.includes('.') ? tn.split('.').slice(0, -1).join('.') : '';
+                            if (pkg && fileByPkg.has(pkg)) {
+                              const depFile = fileByPkg.get(pkg)!;
+                              if (depFile && depFile !== fileName) inferred.add(depFile);
                             }
-                          } catch {}
+                          };
+                          if (inRaw) addType(inRaw);
+                          if (outRaw) addType(outRaw);
                         }
                       }
                     } catch {}
-                  } else if (name === 'google_protobuf.proto') {
-                    if (!String(pkg).startsWith('google.')) {
-                      try { if (typeof (f as any).setPackage === 'function') (f as any).setPackage('google.protobuf'); } catch {}
-                    }
+                    deps = Array.from(inferred);
                   }
-
-                  let deps = f.getDependencyList();
-                  // Augment empty or missing deps by inferring from type references
-                  if (!deps || deps.length === 0) {
-                    try { deps = inferDepsFromTypes(name, f); } catch { deps = deps || []; }
-                  }
-                  const newDeps = deps.map(mapDep);
-                  if (typeof (f as any).setDependencyList === 'function') (f as any).setDependencyList(newDeps);
+                  const mapped = deps.map((d: string) => canonicalizeDependency(d, presentNames));
+                  if (typeof (f as any).setDependencyList === 'function') (f as any).setDependencyList(mapped);
                   remapped.push((f as any).serializeBinary());
                 } catch { remapped.push(buf); }
               }

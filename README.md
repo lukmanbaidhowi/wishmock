@@ -14,6 +14,7 @@ Supports hot reload for both proto files and rules.
 - **TLS/mTLS Support** - Secure connections with client certificate validation
 - **Server Streaming** - Stream multiple responses with configurable delays
 - **Infinite Loop Streaming** - Continuous streaming with random order support
+- **Server Reflection** - grpcurl auto-discovery on plaintext and TLS ports
 
 ## Project Structure
 ```
@@ -210,6 +211,38 @@ grpcurl -import-path protos -proto calendar.proto -plaintext -d '{"id":"err-dead
 ```
 
 Note: On Bun, file watching uses polling for stability.
+
+## Server Reflection
+
+The server exposes gRPC Server Reflection on both plaintext and TLS ports for tools like grpcurl to auto-discover services and message types.
+
+- How it works:
+  - The server wraps `@grpc/grpc-js` with `grpc-node-server-reflection` and unions descriptor files harvested from `@grpc/proto-loader` across all registered services.
+  - It preserves original `.proto` file names and canonicalizes common vendor imports (google/*) so dependency names match what grpcurl expects.
+  - When `.proto` files omit dependency lists, the server infers them from field type references and from service method input/output types to make the descriptor set dependency‑closed.
+  - If some dependencies are still unresolved, it safely falls back to returning the full descriptor pool so grpcurl can continue working.
+
+- Quick usage (no `-proto` flag required):
+  - List services: `grpcurl -plaintext localhost:50050 list`
+  - Describe service/method: `grpcurl -plaintext localhost:50050 describe helloworld.Greeter`
+  - TLS reflection: `grpcurl -cacert certs/ca.crt localhost:50051 list`
+
+- Import paths in your `.proto` files:
+  - Place your files under `protos/` and import using include‑root paths, e.g. `import "imports/common.proto";`.
+  - Avoid path traversal imports like `"../common.proto"` — `@grpc/proto-loader` resolves using include directories, not the importing file's directory.
+  - Use the provided third‑party fetch script for common vendor protos: `bun run protos:fetch` (adds `protos/google/...`, `protos/validate/...`, etc.).
+
+- Debugging reflection:
+  - Set `DEBUG_REFLECTION=1` to log descriptor names, dependencies, and resolution details.
+  - Check `GET /admin/status` for `loaded_services` and `protos.loaded`/`protos.skipped`.
+
+- Fallback to explicit protos (when desired):
+  - You can always call with explicit proto flags instead of reflection:
+    `grpcurl -import-path protos -proto helloworld.proto -plaintext ...`
+
+Run the example tests:
+- With reflection (default): `bun run test:readme-examples`
+- With explicit `-proto` imports: `bun run test:readme-examples:import-proto`
 
 ## TLS / mTLS
 

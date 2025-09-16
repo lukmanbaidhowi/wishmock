@@ -149,6 +149,19 @@ run_call "Calendar err-deadline (import proto)" \
 run_call "Calendar success (next, import proto)" \
   grpcurl "${PROTO_FLAGS[@]}" -proto calendar.proto -plaintext -d '{"id":"next"}' "localhost:${GRPC_PORT}" calendar.Events/GetEvent
 
+# Explicit proto imports for services in protos/ that import from imports/
+run_call "RelService describe (import proto)" \
+  grpcurl "${PROTO_FLAGS[@]}" -proto rel_service.proto -plaintext "localhost:${GRPC_PORT}" describe rel.RelService
+
+run_call "AbsService describe (import proto)" \
+  grpcurl "${PROTO_FLAGS[@]}" -proto abs_service.proto -plaintext "localhost:${GRPC_PORT}" describe abs.AbsService
+
+run_call "RelService DoRel (import proto)" \
+  grpcurl "${PROTO_FLAGS[@]}" -proto rel_service.proto -plaintext -d '{"msg":{"note":"hi"}}' "localhost:${GRPC_PORT}" rel.RelService/DoRel
+
+run_call "AbsService DoAbs (import proto)" \
+  grpcurl "${PROTO_FLAGS[@]}" -proto abs_service.proto -plaintext -d '{"msg":{"note":"hi"}}' "localhost:${GRPC_PORT}" abs.AbsService/DoAbs
+
 # Optional TLS tests
 if [[ "$TLS_TESTS" == "true" ]]; then
   sleep 0.5
@@ -165,4 +178,3 @@ if [[ "$TLS_TESTS" == "true" ]]; then
 fi
 
 echo "Done. Server logs: $LOG_FILE"
-

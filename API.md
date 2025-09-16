@@ -41,6 +41,18 @@ Content-Type: application/json
 }
 ```
 
+### Upload Proto File To Path
+```
+POST /admin/upload/proto/path
+Content-Type: application/json
+
+{
+  "path": "common/types.proto",
+  "content": "syntax = \"proto3\";\n..."
+}
+```
+Saves the file under `protos/common/types.proto`. The `path` must be relative to the `protos/` root and must not contain path traversal ("..") or be absolute.
+
 ## Rule Files
 
 ### List Rule Files

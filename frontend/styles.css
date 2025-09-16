@@ -6,6 +6,9 @@
   --accent: #22c55e;
   --accent-muted: #16a34a;
   --border: #1f2937;
+  --danger: #ef4444;
+  --warn: #f59e0b;
+  --info: #3b82f6;
 }
 
 * { box-sizing: border-box; }
@@ -46,6 +49,24 @@ ul { margin: 8px 0; padding-left: 16px; }
 .type-link { color: #93c5fd; cursor: pointer; margin: 0 4px; }
 .type-link:hover { text-decoration: underline; }
 
+/* Tidy spacing inside upload panels */
+.upload-grid .panel h3 { margin-top: 0; margin-bottom: 8px; }
+.upload-grid .panel label { display: block; margin-bottom: 6px; }
+.upload-grid .panel input[type="file"],
+.upload-grid .panel input[type="text"] {
+  display: block;
+  width: 100%;
+  margin-bottom: 8px;
+}
+.upload-grid .panel button { margin-top: 4px; }
+
+/* Drag-and-drop zones */
+.dropzone { position: relative; transition: background 120ms ease, border-color 120ms ease; cursor: default; }
+.dropzone.drag-over { background: rgba(34, 197, 94, 0.12); border-color: var(--accent); border-style: solid; }
+.drop-hint { opacity: 0.7; }
+.dropzone.drag-over .drop-hint { opacity: 1; }
+.selected-file { min-height: 1.2em; }
+
 .services-grid { display: grid; gap: 16px; grid-template-columns: 1.2fr 1fr; align-items: start; }
 .row { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; }
 .method { padding: 6px 8px; border-bottom: 1px solid var(--border); }
@@ -55,3 +76,28 @@ ul { margin: 8px 0; padding-left: 16px; }
 
 footer { max-width: 1100px; margin: 0 auto 40px; padding: 0 16px; color: var(--muted); }
 code { color: #86efac; }
+
+/* Snackbar (top-center) */
+.snackbar {
+  position: fixed;
+  top: 16px;
+  left: 50%;
+  transform: translateX(-50%) translateY(-8px);
+  z-index: 9999;
+  background: var(--panel);
+  color: var(--text);
+  border: 1px solid var(--border);
+  padding: 10px 14px;
+  border-radius: 8px;
+  box-shadow: 0 6px 20px rgba(0,0,0,0.35);
+  display: flex; align-items: center; gap: 10px;
+  opacity: 0; pointer-events: none;
+  transition: opacity 120ms ease, transform 120ms ease, border-color 120ms ease;
+}
+.snackbar.visible { opacity: 1; transform: translateX(-50%) translateY(0); pointer-events: auto; }
+.snackbar.info { border-color: rgba(59,130,246,0.6); }
+.snackbar.success { border-color: rgba(34,197,94,0.7); }
+.snackbar.warn { border-color: rgba(245,158,11,0.7); }
+.snackbar.error { border-color: rgba(239,68,68,0.7); }
+.snackbar-close { background: transparent; border: none; color: var(--muted); font-size: 18px; line-height: 1; cursor: pointer; padding: 0 4px; }
+.snackbar-close:hover { color: var(--text); }

@@ -1,7 +1,7 @@
 import path from "path";
-import { listFiles, readFile, writeFile } from '../../infrastructure/file/fileService.js';
+import { listFiles, readFile, writeFile, writeFileAtPath } from '../../infrastructure/file/fileService.js';
 import { sendError, sendNotFound, sendSuccess } from './responseHelper.js';
-import { validateFilename, validateContent, validateUploadData } from './validator.js';
+import { validateFilename, validateContent, validateUploadData, validateRelativePath } from './validator.js';
 import { FILE_EXTENSIONS } from './constants.js';
 
 function createFileHandlers(protoDir: string, ruleDir: string, onRuleUpdated: () => void) {
@@ -106,6 +106,23 @@ function createFileHandlers(protoDir: string, ruleDir: string, onRuleUpdated: ()
       } catch (error) {
         sendError(res, error, "Failed to upload rule file");
       }
+    },
+
+    // Upload a proto file to a subdirectory under protoDir using a relative path
+    uploadProtoAtPath: (req: any, res: any) => {
+      const relPath = String(req.body?.path || "");
+      const content = String(req.body?.content || "");
+      if (!validateRelativePath(relPath, res) || !validateContent(content, res)) return;
+      if (!relPath.endsWith('.proto')) {
+        return sendError(res, new Error('only .proto files allowed'), 'Failed to upload proto file at path');
+      }
+
+      try {
+        const saved = writeFileAtPath(protoDir, relPath, content);
+        sendSuccess(res, { ok: true, saved });
+      } catch (error) {
+        sendError(res, error, "Failed to upload proto file at path");
+      }
     }
   };
 }
@@ -117,6 +134,7 @@ export function setupFileRoutes(app: any, protoDir: string, ruleDir: string, onR
   app.get("/admin/proto/:filename", handlers.getProto);
   app.put("/admin/proto/:filename", handlers.updateProto);
   app.post("/admin/upload/proto", handlers.uploadProto);
+  app.post("/admin/upload/proto/path", handlers.uploadProtoAtPath);
   
   app.get("/admin/rules", handlers.listRules);
   app.get("/admin/rule/:filename", handlers.getRule);

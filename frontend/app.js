@@ -87,7 +87,7 @@ async function refreshStatus() {
     });
   } catch (e) {
     console.error(e);
-    alert(`Failed to load status: ${e.message}`);
+    showSnackbar(`Failed to load status: ${e.message}`, 'error');
   }
 }
 
@@ -97,30 +97,124 @@ async function uploadFile(endpoint, file) {
   return fetchJSON(endpoint, { method: "POST", body });
 }
 
+async function uploadFileToPath(endpoint, file, relPath) {
+  const content = await file.text();
+  const body = JSON.stringify({ path: relPath, content });
+  return fetchJSON(endpoint, { method: "POST", body });
+}
+
+function bindDropzone(zoneEl, inputEl, options) {
+  if (!zoneEl || !inputEl) return;
+  const acceptExts = (options && options.acceptExts) || [];
+  const onFileChosen = (file) => {
+    const dt = new DataTransfer();
+    dt.items.add(file);
+    inputEl.files = dt.files;
+    if (options && typeof options.onPicked === 'function') options.onPicked(file);
+  };
+
+  const allow = (file) => {
+    if (!acceptExts.length) return true;
+    const name = (file && file.name) ? file.name.toLowerCase() : '';
+    return acceptExts.some((ext) => name.endsWith(ext));
+  };
+
+  const stop = (e) => { e.preventDefault(); e.stopPropagation(); };
+  let dragCount = 0;
+  const enter = (e) => { stop(e); dragCount++; zoneEl.classList.add('drag-over'); };
+  const over = (e) => { stop(e); zoneEl.classList.add('drag-over'); };
+  const leave = (e) => { stop(e); dragCount = Math.max(0, dragCount - 1); if (dragCount === 0) zoneEl.classList.remove('drag-over'); };
+  const drop = (e) => {
+    stop(e);
+    dragCount = 0; zoneEl.classList.remove('drag-over');
+    const files = e.dataTransfer && e.dataTransfer.files ? Array.from(e.dataTransfer.files) : [];
+    if (!files.length) return;
+    if (files.length > 1) { showSnackbar('Please drop only one file', 'warn'); return; }
+    const f = files[0];
+    if (!allow(f)) { showSnackbar(`Unsupported file type. Allowed: ${acceptExts.join(', ')}`, 'warn'); return; }
+    onFileChosen(f);
+  };
+
+  zoneEl.addEventListener('dragenter', enter);
+  zoneEl.addEventListener('dragover', over);
+  zoneEl.addEventListener('dragleave', leave);
+  zoneEl.addEventListener('drop', drop);
+
+  // Keep file name display in sync when chosen via picker
+  inputEl.addEventListener('change', () => {
+    if (inputEl.files && inputEl.files[0] && options && typeof options.onPicked === 'function') {
+      options.onPicked(inputEl.files[0]);
+    }
+  });
+}
+
 
 function bindUploads() {
   $("#uploadProto").addEventListener("submit", async (e) => {
     e.preventDefault();
     const file = $("#protoFile").files[0];
-    if (!file) return alert("Choose a .proto file first");
+    if (!file) return showSnackbar("Choose a .proto file first", 'warn');
     try {
       await uploadFile("/admin/upload/proto", file);
-      alert("Proto uploaded. The server will rebuild on next change detected.");
+      showSnackbar("Proto uploaded. The server will rebuild on next change detected.", 'success');
     } catch (err) {
-      alert(`Upload failed: ${err.message}`);
+      showSnackbar(`Upload failed: ${err.message}`, 'error');
     }
+  });
+
+  const uploadProtoAtPath = $("#uploadProtoAtPath");
+  if (uploadProtoAtPath) {
+    uploadProtoAtPath.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const file = $("#protoFileAtPath").files[0];
+      const relPath = String($("#protoRelPath").value || "").trim();
+      if (!file) return showSnackbar("Choose a .proto file first", 'warn');
+      if (!relPath) return showSnackbar("Enter a relative path (e.g., common/types.proto)", 'warn');
+      try {
+        await uploadFileToPath("/admin/upload/proto/path", file, relPath);
+        showSnackbar(`Proto uploaded to protos/${relPath}. The server will rebuild on next change detected.`, 'success');
+      } catch (err) {
+        showSnackbar(`Upload failed: ${err.message}`, 'error');
+      }
+    });
+  }
+
+  // Bind drag-and-drop for the two .proto forms
+  const dz1 = $("#uploadProto");
+  const in1 = $("#protoFile");
+  const name1 = $("#protoFileName");
+  bindDropzone(dz1, in1, {
+    acceptExts: ['.proto'],
+    onPicked: (file) => { if (name1) name1.textContent = `Selected: ${file.name}`; }
+  });
+
+  const dz2 = $("#uploadProtoAtPath");
+  const in2 = $("#protoFileAtPath");
+  const name2 = $("#protoFileAtPathName");
+  bindDropzone(dz2, in2, {
+    acceptExts: ['.proto'],
+    onPicked: (file) => { if (name2) name2.textContent = `Selected: ${file.name}`; }
+  });
+
+  // Bind drag-and-drop for rule form (YAML/JSON)
+  const dz3 = $("#uploadRule");
+  const in3 = $("#ruleFile");
+  const name3 = $("#ruleFileName");
+  bindDropzone(dz3, in3, {
+    acceptExts: ['.yaml', '.yml', '.json'],
+    onPicked: (file) => { if (name3) name3.textContent = `Selected: ${file.name}`; }
   });
 
   $("#uploadRule").addEventListener("submit", async (e) => {
     e.preventDefault();
     const file = $("#ruleFile").files[0];
-    if (!file) return alert("Choose a rule file first");
+    if (!file) return showSnackbar("Choose a rule file first", 'warn');
     try {
       await uploadFile("/admin/upload/rule", file);
       await refreshStatus();
-      alert("Rule uploaded and reloaded.");
+      showSnackbar("Rule uploaded and reloaded.", 'success');
     } catch (err) {
-      alert(`Upload failed: ${err.message}`);
+      showSnackbar(`Upload failed: ${err.message}`, 'error');
     }
   });
 }
@@ -167,7 +261,7 @@ async function refreshServices() {
     renderServices(data?.services || []);
   } catch (e) {
     console.error(e);
-    alert(`Failed to load services: ${e.message}`);
+    showSnackbar(`Failed to load services: ${e.message}`, 'error');
   }
 }
 
@@ -279,4 +373,29 @@ function renderSchema(typeName, info) {
     `;
   }
   return `<div class="muted">Unknown schema kind for ${typeName}</div>`;
+}
+
+// Snackbar helpers
+let __snackbarTimer = null;
+function showSnackbar(message, kind = 'info', opts = {}) {
+  const el = document.getElementById('snackbar');
+  const text = document.getElementById('snackbarText');
+  const close = document.getElementById('snackbarClose');
+  if (!el || !text || !close) { console.warn('Snackbar elements missing'); return; }
+  text.textContent = String(message || '');
+  el.classList.remove('info', 'success', 'warn', 'error');
+  el.classList.add(kind || 'info');
+  el.style.display = 'flex';
+  requestAnimationFrame(() => el.classList.add('visible'));
+  if (__snackbarTimer) clearTimeout(__snackbarTimer);
+  const duration = opts.duration || (kind === 'error' ? 5000 : 3000);
+  __snackbarTimer = setTimeout(hideSnackbar, duration);
+  close.onclick = hideSnackbar;
+}
+function hideSnackbar() {
+  const el = document.getElementById('snackbar');
+  if (!el) return;
+  el.classList.remove('visible');
+  if (__snackbarTimer) { clearTimeout(__snackbarTimer); __snackbarTimer = null; }
+  setTimeout(() => { if (el && !el.classList.contains('visible')) el.style.display = 'none'; }, 150);
 }

@@ -17,6 +17,10 @@
     </header>
 
     <main>
+      <div id="snackbar" class="snackbar" role="status" aria-live="polite" style="display:none">
+        <span id="snackbarText"></span>
+        <button id="snackbarClose" class="snackbar-close" aria-label="Close">×</button>
+      </div>
       <section id="status" class="card">
         <h2>Status</h2>
         <button id="refreshStatus">Refresh</button>
@@ -52,16 +56,30 @@
       <section id="upload" class="card">
         <h2>Upload</h2>
         <div class="upload-grid">
-          <form id="uploadProto" class="panel">
+          <form id="uploadProto" class="panel dropzone">
             <h3>.proto</h3>
             <input type="file" id="protoFile" accept=".proto" />
+            <div class="hint selected-file" id="protoFileName"></div>
+            <div class="hint drop-hint">Drag & drop a .proto file here</div>
             <button type="submit">Upload .proto</button>
             <p class="hint">Saves to /protos and triggers rebuild on file change.</p>
+          </form>
+
+          <form id="uploadProtoAtPath" class="panel dropzone">
+            <h3>.proto (to subfolder)</h3>
+            <label for="protoRelPath" class="muted">Relative path under protos/ (e.g., common/types.proto)</label>
+            <input type="text" id="protoRelPath" placeholder="common/types.proto" />
+            <input type="file" id="protoFileAtPath" accept=".proto" />
+            <div class="hint selected-file" id="protoFileAtPathName"></div>
+            <div class="hint drop-hint">Drag & drop a .proto file here</div>
+            <button type="submit">Upload to path</button>
+            <p class="hint">Saves under <code>protos/&lt;path&gt;</code>. Path must be relative and end with <code>.proto</code>.</p>
           </form>
 
           <form id="uploadRule" class="panel">
             <h3>Rule (YAML/JSON)</h3>
             <input type="file" id="ruleFile" accept=".yaml,.yml,.json" />
+            <div class="hint selected-file" id="ruleFileName"></div>
             <button type="submit">Upload rule</button>
             <p class="hint">Saves to /rules and reloads immediately.</p>
           </form>

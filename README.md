@@ -133,6 +133,16 @@ npm run start:node:watch
   - TLS: `localhost:50051` (if enabled)
 - Admin HTTP server: `localhost:3000`
 
+## Quick Test
+```bash
+grpcurl -import-path protos -proto helloworld.proto -plaintext -d '{"name":"Tom"}' localhost:50050 helloworld.Greeter/SayHello
+```
+
+## Hot Reload
+- Change/add `.proto` in `protos/` → server auto rebuilds and restarts
+- Change/add rules in `rules/` → rules reload immediately (no restart)
+- Upload proto/rules via Admin API
+
 ### Admin UI (Web)
 - Open `http://localhost:3000/app/` to:
   - Upload `.proto` and rule files (YAML/JSON) via Admin API
@@ -181,16 +191,6 @@ grpcurl -import-path protos -proto helloworld.proto -d '{"name":"Tom"}' \
   -key certs/client.key \
   localhost:50051 helloworld.Greeter/SayHello
 ```
-
-3. Test with grpcurl (plaintext):
-   ```bash
-   grpcurl -import-path protos -proto helloworld.proto -plaintext -d '{"name":"Tom"}' localhost:50050 helloworld.Greeter/SayHello
-   ```
-
-4. Hot reload:
-   - Change/add `.proto` in `protos/` → server auto rebuilds and restarts
-   - Change/add rules in `rules/` → rules reload immediately (no restart)
-  - Upload proto/rules via Admin API
 
 ### Error Simulation Examples
 - The file `rules/calendar.events.getevent.yaml:1` includes realistic error cases keyed by `request.id` values. Examples:
@@ -518,10 +518,6 @@ grpcurl -import-path protos -proto streaming.proto -plaintext -d '{"user_id":"li
 grpcurl -import-path protos -proto streaming.proto -plaintext -d '{"topic":"live_monitoring"}' localhost:50050 streaming.StreamService/WatchEvents
 ```
 
-## Development
-
-This project was developed with AI assistance to accelerate development and ensure comprehensive feature coverage.
-
 ## Response Body Templating
 
 The server supports dynamic response templating using data from requests, metadata, headers, and stream context. Templates use `{{expression}}` syntax and can access various data sources.
@@ -601,6 +597,8 @@ grpcurl -import-path protos -proto streaming.proto -plaintext -d '{"user_id":"te
 - **Nested Support**: Templates work in nested objects and arrays
 
 ## Roadmap
-- **gRPC Reflection** - Auto-discovery of services without `.proto` files
 - Create, edit, and validate rule bodies inline with schema validation.
 - Preview matched response given sample request and metadata.
+
+## Development
+This project was developed with AI assistance to accelerate development and ensure comprehensive feature coverage.

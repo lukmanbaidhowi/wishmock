@@ -354,6 +354,51 @@ describe("fileRoutes - update & upload handlers", () => {
     });
   });
 
+  describe("uploadProtoAtPath handlers", () => {
+    it("uploads proto to relative path and returns saved path", () => {
+      setupFileRoutes(mockApp, "/proto/dir", "/rule/dir", onRuleUpdated);
+      const handler = mockApp.post.mock.calls.find((c: any) => c[0] === "/admin/upload/proto/path")[1];
+
+      const savedPath = "/proto/dir/nested/ok.proto";
+      const spy = vi.spyOn(FileService, "writeFileAtPath").mockReturnValue(savedPath);
+
+      mockReq.body = { path: "nested/ok.proto", content: "syntax=proto3;" };
+      handler(mockReq, mockRes);
+
+      expect(spy).toHaveBeenCalledWith("/proto/dir", "nested/ok.proto", "syntax=proto3;");
+      expect(mockRes.status).toHaveBeenCalledWith(HTTP_STATUS.OK);
+      expect(mockRes._jsonMock).toHaveBeenCalledWith({ ok: true, saved: savedPath });
+      spy.mockRestore();
+    });
+
+    it("rejects non-.proto extension with internal error", () => {
+      setupFileRoutes(mockApp, "/proto/dir", "/rule/dir", onRuleUpdated);
+      const handler = mockApp.post.mock.calls.find((c: any) => c[0] === "/admin/upload/proto/path")[1];
+
+      mockReq.body = { path: "nested/file.txt", content: "hello" };
+      handler(mockReq, mockRes);
+
+      expect(mockRes.status).toHaveBeenCalledWith(HTTP_STATUS.INTERNAL_ERROR);
+      expect(mockRes._jsonMock).toHaveBeenCalledWith({ error: "only .proto files allowed" });
+    });
+
+    it("handles write error when uploading at path", () => {
+      setupFileRoutes(mockApp, "/proto/dir", "/rule/dir", onRuleUpdated);
+      const handler = mockApp.post.mock.calls.find((c: any) => c[0] === "/admin/upload/proto/path")[1];
+
+      const spy = vi.spyOn(FileService, "writeFileAtPath").mockImplementation(() => {
+        throw new Error("write failed");
+      });
+      mockReq.body = { path: "nested/bad.proto", content: "x" };
+
+      handler(mockReq, mockRes);
+
+      expect(mockRes.status).toHaveBeenCalledWith(HTTP_STATUS.INTERNAL_ERROR);
+      expect(mockRes._jsonMock).toHaveBeenCalledWith({ error: "write failed" });
+      spy.mockRestore();
+    });
+  });
+
   describe("getRule branches", () => {
     it("returns NOT_FOUND for missing rule", () => {
       setupFileRoutes(mockApp, "/proto/dir", "/rule/dir", onRuleUpdated);

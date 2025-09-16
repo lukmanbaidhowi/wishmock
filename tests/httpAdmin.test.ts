@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from "bun:test";
 import { sendError, sendBadRequest, sendNotFound, sendSuccess } from "../src/interfaces/http/responseHelper.js";
-import { validateFilename, validateContent, validateUploadData } from "../src/interfaces/http/validator.js";
+import { validateFilename, validateContent, validateUploadData, validateRelativePath } from "../src/interfaces/http/validator.js";
 import { HTTP_STATUS } from "../src/interfaces/http/constants.js";
 
 // Mock response object
@@ -118,6 +118,45 @@ describe("Validator Functions", () => {
       const result = validateUploadData("test.proto", "", mockRes);
       expect(result).toBe(false);
       expect(mockRes.status).toHaveBeenCalledWith(HTTP_STATUS.BAD_REQUEST);
+    });
+  });
+
+  describe("Relative Path Validation", () => {
+    it("accepts valid relative path", () => {
+      const ok = validateRelativePath("dir/file.proto", mockRes);
+      expect(ok).toBe(true);
+    });
+
+    it("rejects empty path", () => {
+      const ok = validateRelativePath("", mockRes);
+      expect(ok).toBe(false);
+      expect(mockRes.status).toHaveBeenCalledWith(HTTP_STATUS.BAD_REQUEST);
+      expect(mockRes._jsonMock).toHaveBeenCalledWith({ error: "path required" });
+    });
+
+    it("rejects absolute path", () => {
+      const ok = validateRelativePath("/absolute/file.proto", mockRes);
+      expect(ok).toBe(false);
+      expect(mockRes.status).toHaveBeenCalledWith(HTTP_STATUS.BAD_REQUEST);
+      expect(mockRes._jsonMock).toHaveBeenCalledWith({ error: "absolute paths not allowed" });
+    });
+
+    it("rejects path traversal using '..'", () => {
+      const ok1 = validateRelativePath("../escape.proto", mockRes);
+      expect(ok1).toBe(false);
+      const ok2 = validateRelativePath("a/../..", mockRes);
+      expect(ok2).toBe(false);
+      expect(mockRes.status).toHaveBeenCalledWith(HTTP_STATUS.BAD_REQUEST);
+      expect(mockRes._jsonMock).toHaveBeenCalledWith({ error: "path traversal not allowed" });
+    });
+
+    it("rejects invalid path like '.' or './'", () => {
+      const ok1 = validateRelativePath(".", mockRes);
+      expect(ok1).toBe(false);
+      const ok2 = validateRelativePath("./", mockRes);
+      expect(ok2).toBe(false);
+      expect(mockRes.status).toHaveBeenCalledWith(HTTP_STATUS.BAD_REQUEST);
+      expect(mockRes._jsonMock).toHaveBeenCalledWith({ error: "invalid path" });
     });
   });
 });

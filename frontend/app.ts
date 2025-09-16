@@ -1,9 +1,13 @@
-const $ = (sel) => document.querySelector(sel);
-const $$ = (sel) => Array.from(document.querySelectorAll(sel));
+import { groupLoadedServices } from './lib/services.ts';
+import { renderSchema as renderSchemaHelper } from './lib/schema.ts';
+import { allowFileByExt } from './lib/files.ts';
 
-async function fetchJSON(url, opts = {}) {
+const $ = (sel: string) => document.querySelector(sel) as HTMLElement | null;
+const $$ = (sel: string) => Array.from(document.querySelectorAll(sel)) as HTMLElement[];
+
+async function fetchJSON(url: string, opts: RequestInit = {}) {
   const res = await fetch(url, {
-    headers: { "content-type": "application/json", ...(opts.headers || {}) },
+    headers: { "content-type": "application/json", ...((opts as any).headers || {}) },
     ...opts,
   });
   if (!res.ok) throw new Error(`HTTP ${res.status}: ${await res.text()}`);
@@ -13,7 +17,7 @@ async function fetchJSON(url, opts = {}) {
 
 async function refreshStatus() {
   try {
-    const s = await fetchJSON("/admin/status");
+    const s: any = await fetchJSON("/admin/status");
     // Ports
     const ports = s.grpc_ports || {};
     const plaintext = ports.plaintext ?? s.grpc_port;
@@ -24,30 +28,24 @@ async function refreshStatus() {
     const elPlain = document.querySelector('#grpcPlaintextPort');
     const elTlsEnabled = document.querySelector('#grpcTlsEnabled');
     const elTlsPort = document.querySelector('#grpcTlsPort');
-    const elTlsErrWrap = document.querySelector('#grpcTlsErrorWrap');
+    const elTlsErrWrap = document.querySelector('#grpcTlsErrorWrap') as HTMLElement | null;
     const elTlsErr = document.querySelector('#grpcTlsError');
     if (elPlain) elPlain.textContent = String(plaintext ?? "-");
-    if (elTlsEnabled) elTlsEnabled.textContent = tlsEnabled ? 'yes' : 'no';
-    if (elTlsPort) elTlsPort.textContent = tlsEnabled ? String(tlsPort) : '-';
+    if (elTlsEnabled) (elTlsEnabled as HTMLElement).textContent = tlsEnabled ? 'yes' : 'no';
+    if (elTlsPort) (elTlsPort as HTMLElement).textContent = tlsEnabled ? String(tlsPort) : '-';
     if (elTlsErrWrap) elTlsErrWrap.style.display = tlsErr ? 'block' : 'none';
-    if (elTlsErr && tlsErr) elTlsErr.textContent = tlsErr;
-    const services = $("#services");
-    services.innerHTML = "";
+    if (elTlsErr && tlsErr) (elTlsErr as HTMLElement).textContent = tlsErr;
+    const services = $("#services") as HTMLElement;
+    if (services) services.innerHTML = "";
     // Group loaded methods by service for readability
-    const byService = new Map();
-    (s.loaded_services || []).forEach((full) => {
-      const str = String(full || "");
-      const [svc, method] = str.includes("/") ? str.split("/", 2) : [str, ""];
-      if (!byService.has(svc)) byService.set(svc, []);
-      if (method) byService.get(svc).push(method);
-    });
+    const byService = groupLoadedServices(s.loaded_services || []);
     [...byService.entries()]
       .sort((x, y) => String(x[0]).localeCompare(String(y[0])))
       .forEach(([svc, methods]) => {
       const li = document.createElement("li");
       const details = document.createElement("details");
       // Default collapsed; user can expand individual services
-      details.open = false;
+      (details as any).open = false;
       const summary = document.createElement("summary");
       summary.textContent = `${svc} (${methods.length})`;
       details.appendChild(summary);
@@ -59,14 +57,14 @@ async function refreshStatus() {
       });
       details.appendChild(ul);
       li.appendChild(details);
-      services.appendChild(li);
+      services && services.appendChild(li);
     });
-  const rules = $("#rules");
-    rules.innerHTML = "";
-    (s.rules || []).forEach((k) => {
+  const rules = $("#rules") as HTMLElement | null;
+    if (rules) rules.innerHTML = "";
+    (s.rules || []).forEach((k: string) => {
       const li = document.createElement("li");
       li.textContent = k;
-      rules.appendChild(li);
+      rules && rules.appendChild(li);
     });
 
     // Render protos status if present
@@ -75,62 +73,58 @@ async function refreshStatus() {
     if (pl) pl.innerHTML = "";
     if (ps) ps.innerHTML = "";
     const protos = s.protos || { loaded: [], skipped: [] };
-    (protos.loaded || []).forEach((f) => {
+    (protos.loaded || []).forEach((f: string) => {
       const li = document.createElement("li");
       li.textContent = f;
       pl && pl.appendChild(li);
     });
-    (protos.skipped || []).forEach((entry) => {
+    (protos.skipped || []).forEach((entry: any) => {
       const li = document.createElement("li");
       li.textContent = `${entry.file}${entry.error ? ` — ${entry.error}` : ""}`;
       ps && ps.appendChild(li);
     });
-  } catch (e) {
+  } catch (e: any) {
     console.error(e);
     showSnackbar(`Failed to load status: ${e.message}`, 'error');
   }
 }
 
-async function uploadFile(endpoint, file) {
+async function uploadFile(endpoint: string, file: File) {
   const content = await file.text();
   const body = JSON.stringify({ filename: file.name, content });
   return fetchJSON(endpoint, { method: "POST", body });
 }
 
-async function uploadFileToPath(endpoint, file, relPath) {
+async function uploadFileToPath(endpoint: string, file: File, relPath: string) {
   const content = await file.text();
   const body = JSON.stringify({ path: relPath, content });
   return fetchJSON(endpoint, { method: "POST", body });
 }
 
-function bindDropzone(zoneEl, inputEl, options) {
+function bindDropzone(zoneEl: HTMLElement | null, inputEl: HTMLInputElement | null, options?: { acceptExts?: string[]; onPicked?: (file: File) => void; }) {
   if (!zoneEl || !inputEl) return;
   const acceptExts = (options && options.acceptExts) || [];
-  const onFileChosen = (file) => {
+  const onFileChosen = (file: File) => {
     const dt = new DataTransfer();
     dt.items.add(file);
     inputEl.files = dt.files;
     if (options && typeof options.onPicked === 'function') options.onPicked(file);
   };
 
-  const allow = (file) => {
-    if (!acceptExts.length) return true;
-    const name = (file && file.name) ? file.name.toLowerCase() : '';
-    return acceptExts.some((ext) => name.endsWith(ext));
-  };
+  const allow = (file: File) => allowFileByExt(file?.name || '', acceptExts);
 
-  const stop = (e) => { e.preventDefault(); e.stopPropagation(); };
+  const stop = (e: { preventDefault(): void; stopPropagation(): void }) => { e.preventDefault(); e.stopPropagation(); };
   let dragCount = 0;
-  const enter = (e) => { stop(e); dragCount++; zoneEl.classList.add('drag-over'); };
-  const over = (e) => { stop(e); zoneEl.classList.add('drag-over'); };
-  const leave = (e) => { stop(e); dragCount = Math.max(0, dragCount - 1); if (dragCount === 0) zoneEl.classList.remove('drag-over'); };
-  const drop = (e) => {
+  const enter = (e: DragEvent) => { stop(e); dragCount++; zoneEl.classList.add('drag-over'); };
+  const over = (e: DragEvent) => { stop(e); zoneEl.classList.add('drag-over'); };
+  const leave = (e: DragEvent) => { stop(e); dragCount = Math.max(0, dragCount - 1); if (dragCount === 0) zoneEl.classList.remove('drag-over'); };
+  const drop = (e: DragEvent) => {
     stop(e);
     dragCount = 0; zoneEl.classList.remove('drag-over');
     const files = e.dataTransfer && e.dataTransfer.files ? Array.from(e.dataTransfer.files) : [];
     if (!files.length) return;
     if (files.length > 1) { showSnackbar('Please drop only one file', 'warn'); return; }
-    const f = files[0];
+    const f = files[0] as File;
     if (!allow(f)) { showSnackbar(`Unsupported file type. Allowed: ${acceptExts.join(', ')}`, 'warn'); return; }
     onFileChosen(f);
   };
@@ -150,30 +144,30 @@ function bindDropzone(zoneEl, inputEl, options) {
 
 
 function bindUploads() {
-  $("#uploadProto").addEventListener("submit", async (e) => {
+  (document.getElementById("uploadProto") as HTMLFormElement).addEventListener("submit", async (e) => {
     e.preventDefault();
-    const file = $("#protoFile").files[0];
+    const file = (document.getElementById("protoFile") as HTMLInputElement).files?.[0];
     if (!file) return showSnackbar("Choose a .proto file first", 'warn');
     try {
       await uploadFile("/admin/upload/proto", file);
       showSnackbar("Proto uploaded. The server will rebuild on next change detected.", 'success');
-    } catch (err) {
+    } catch (err: any) {
       showSnackbar(`Upload failed: ${err.message}`, 'error');
     }
   });
 
-  const uploadProtoAtPath = $("#uploadProtoAtPath");
+  const uploadProtoAtPath = document.getElementById("uploadProtoAtPath");
   if (uploadProtoAtPath) {
     uploadProtoAtPath.addEventListener("submit", async (e) => {
       e.preventDefault();
-      const file = $("#protoFileAtPath").files[0];
-      const relPath = String($("#protoRelPath").value || "").trim();
+      const file = (document.getElementById("protoFileAtPath") as HTMLInputElement).files?.[0];
+      const relPath = String((document.getElementById("protoRelPath") as HTMLInputElement).value || "").trim();
       if (!file) return showSnackbar("Choose a .proto file first", 'warn');
       if (!relPath) return showSnackbar("Enter a relative path (e.g., common/types.proto)", 'warn');
       try {
         await uploadFileToPath("/admin/upload/proto/path", file, relPath);
         showSnackbar(`Proto uploaded to protos/${relPath}. The server will rebuild on next change detected.`, 'success');
-      } catch (err) {
+      } catch (err: any) {
         showSnackbar(`Upload failed: ${err.message}`, 'error');
       }
     });
@@ -181,16 +175,16 @@ function bindUploads() {
 
   // Bind drag-and-drop for the two .proto forms
   const dz1 = $("#uploadProto");
-  const in1 = $("#protoFile");
-  const name1 = $("#protoFileName");
+  const in1 = document.getElementById("protoFile") as HTMLInputElement | null;
+  const name1 = document.getElementById("protoFileName") as HTMLElement | null;
   bindDropzone(dz1, in1, {
     acceptExts: ['.proto'],
     onPicked: (file) => { if (name1) name1.textContent = `Selected: ${file.name}`; }
   });
 
   const dz2 = $("#uploadProtoAtPath");
-  const in2 = $("#protoFileAtPath");
-  const name2 = $("#protoFileAtPathName");
+  const in2 = document.getElementById("protoFileAtPath") as HTMLInputElement | null;
+  const name2 = document.getElementById("protoFileAtPathName") as HTMLElement | null;
   bindDropzone(dz2, in2, {
     acceptExts: ['.proto'],
     onPicked: (file) => { if (name2) name2.textContent = `Selected: ${file.name}`; }
@@ -198,22 +192,22 @@ function bindUploads() {
 
   // Bind drag-and-drop for rule form (YAML/JSON)
   const dz3 = $("#uploadRule");
-  const in3 = $("#ruleFile");
-  const name3 = $("#ruleFileName");
+  const in3 = document.getElementById("ruleFile") as HTMLInputElement | null;
+  const name3 = document.getElementById("ruleFileName") as HTMLElement | null;
   bindDropzone(dz3, in3, {
     acceptExts: ['.yaml', '.yml', '.json'],
     onPicked: (file) => { if (name3) name3.textContent = `Selected: ${file.name}`; }
   });
 
-  $("#uploadRule").addEventListener("submit", async (e) => {
+  (document.getElementById("uploadRule") as HTMLFormElement).addEventListener("submit", async (e) => {
     e.preventDefault();
-    const file = $("#ruleFile").files[0];
+    const file = (document.getElementById("ruleFile") as HTMLInputElement).files?.[0];
     if (!file) return showSnackbar("Choose a rule file first", 'warn');
     try {
       await uploadFile("/admin/upload/rule", file);
       await refreshStatus();
       showSnackbar("Rule uploaded and reloaded.", 'success');
-    } catch (err) {
+    } catch (err: any) {
       showSnackbar(`Upload failed: ${err.message}`, 'error');
     }
   });
@@ -222,8 +216,10 @@ function bindUploads() {
 
 // Basic router for anchor links
 function bindNav() {
-  $$('header nav a').forEach((a) => {
-    a.addEventListener('click', (e) => {
+  $$(
+    'header nav a'
+  ).forEach((a) => {
+    a.addEventListener('click', (_e) => {
       // allow default hash behavior; we could expand later for SPA routing
     });
   });
@@ -232,8 +228,8 @@ function bindNav() {
 // Placeholder for future OIDC integration
 const auth = {
   // Wire up a real OIDC client later (e.g., Keycloak JS adapter)
-  getToken: () => null,
-  attachAuth(headers = {}) {
+  getToken: () => null as string | null,
+  attachAuth(headers: Record<string, string> = {}) {
     const t = auth.getToken();
     return t ? { ...headers, Authorization: `Bearer ${t}` } : headers;
   },
@@ -241,11 +237,11 @@ const auth = {
 
 // Init
 document.addEventListener("DOMContentLoaded", () => {
-  $("#refreshStatus").addEventListener("click", refreshStatus);
-  const rs = $("#refreshServices");
+  (document.getElementById("refreshStatus") as HTMLButtonElement).addEventListener("click", refreshStatus);
+  const rs = document.getElementById("refreshServices") as HTMLButtonElement | null;
   if (rs) rs.addEventListener("click", refreshServices);
-  const exp = $("#expandAllServices");
-  const col = $("#collapseAllServices");
+  const exp = document.getElementById("expandAllServices") as HTMLButtonElement | null;
+  const col = document.getElementById("collapseAllServices") as HTMLButtonElement | null;
   if (exp) exp.addEventListener("click", () => setServicesExpanded(true));
   if (col) col.addEventListener("click", () => setServicesExpanded(false));
   bindUploads();
@@ -257,15 +253,15 @@ document.addEventListener("DOMContentLoaded", () => {
 // Services list and schema inspector
 async function refreshServices() {
   try {
-    const data = await fetchJSON("/admin/services");
+    const data: any = await fetchJSON("/admin/services");
     renderServices(data?.services || []);
-  } catch (e) {
+  } catch (e: any) {
     console.error(e);
     showSnackbar(`Failed to load services: ${e.message}`, 'error');
   }
 }
 
-function renderServices(services) {
+function renderServices(services: any[]) {
   const container = $("#servicesList");
   if (!container) return;
   container.innerHTML = "";
@@ -274,13 +270,13 @@ function renderServices(services) {
     .sort((a, b) => String(a.name).localeCompare(String(b.name)))
     .forEach((svc) => {
       const wrap = document.createElement("details");
-      wrap.className = "svc-block";
-      wrap.open = false; // collapsed by default
+      (wrap as any).className = "svc-block";
+      (wrap as any).open = false; // collapsed by default
       const summary = document.createElement("summary");
       summary.textContent = svc.name || `${svc.package}.${svc.service}`;
       wrap.appendChild(summary);
 
-      (svc.methods || []).forEach((m) => {
+      (svc.methods || []).forEach((m: any) => {
         const row = document.createElement("div");
         row.className = "method";
 
@@ -306,12 +302,12 @@ function renderServices(services) {
     });
 }
 
-function setServicesExpanded(expand) {
+function setServicesExpanded(expand: boolean) {
   const list = $$("#servicesList details");
-  list.forEach((d) => { d.open = !!expand; });
+  list.forEach((d: any) => { d.open = !!expand; });
 }
 
-function makeTypeLink(typeName) {
+function makeTypeLink(typeName: string) {
   const span = document.createElement("span");
   span.className = "type-link";
   span.textContent = ` ${typeName} `;
@@ -320,82 +316,45 @@ function makeTypeLink(typeName) {
   return span;
 }
 
-async function inspectType(typeName) {
+async function inspectType(typeName: string) {
   const panel = $("#schemaPanel");
   const empty = $("#schemaEmpty");
   const content = $("#schemaContent");
   if (!panel || !content) return;
   try {
     const info = await fetchJSON(`/admin/schema/${encodeURIComponent(typeName)}`);
-    if (empty) empty.style.display = "none";
-    content.style.display = "block";
-    content.innerHTML = renderSchema(typeName, info);
-  } catch (e) {
+    if (empty) (empty as HTMLElement).style.display = "none";
+    (content as HTMLElement).style.display = "block";
+    (content as HTMLElement).innerHTML = renderSchemaHelper(typeName, info);
+  } catch (e: any) {
     console.error(e);
-    if (empty) empty.style.display = "none";
-    content.style.display = "block";
-    content.innerHTML = `<div class="muted">Failed to load schema for ${typeName}: ${e.message}</div>`;
+    if (empty) (empty as HTMLElement).style.display = "none";
+    (content as HTMLElement).style.display = "block";
+    (content as HTMLElement).innerHTML = `<div class="muted">Failed to load schema for ${typeName}: ${e.message}</div>`;
   }
-}
-
-function renderSchema(typeName, info) {
-  if (!info || !info.kind) return `<div>No schema for ${typeName}</div>`;
-  if (info.kind === "enum") {
-    const values = Object.entries(info.values || {})
-      .map(([k, v]) => `<div><code>${k}</code> = ${v}</div>`) 
-      .join("");
-    return `
-      <div><strong>Enum</strong> <code>${typeName}</code></div>
-      <div class="panel">${values || "<div class=\"muted\">(no values)</div>"}</div>
-    `;
-  }
-  if (info.kind === "message") {
-    const fields = (info.fields || [])
-      .map((f) => {
-        const repr = [
-          `#${f.id}`,
-          f.repeated ? "repeated" : (f.optional ? "optional" : "required"),
-          f.map ? `map<${f.keyType}, ${f.type}>` : f.type,
-        ].filter(Boolean).join(" ");
-        return `<div><code>${f.name}</code> — ${repr}</div>`;
-      })
-      .join("");
-    const oneofs = (info.oneofs || [])
-      .map((o) => `<div>oneof <code>${o.name}</code>: ${(o.fields || []).map((x) => `<code>${x}</code>`).join(", ")}</div>`) 
-      .join("");
-    return `
-      <div><strong>Message</strong> <code>${typeName}</code></div>
-      <div class="panel">
-        <div><strong>Fields</strong></div>
-        ${fields || '<div class="muted">(no fields)</div>'}
-      </div>
-      ${oneofs ? `<div class="panel"><div><strong>Oneofs</strong></div>${oneofs}</div>` : ""}
-    `;
-  }
-  return `<div class="muted">Unknown schema kind for ${typeName}</div>`;
 }
 
 // Snackbar helpers
-let __snackbarTimer = null;
-function showSnackbar(message, kind = 'info', opts = {}) {
+let __snackbarTimer: ReturnType<typeof setTimeout> | null = null;
+function showSnackbar(message: string, kind: 'info' | 'success' | 'warn' | 'error' = 'info', opts: { duration?: number } = {}) {
   const el = document.getElementById('snackbar');
   const text = document.getElementById('snackbarText');
   const close = document.getElementById('snackbarClose');
   if (!el || !text || !close) { console.warn('Snackbar elements missing'); return; }
-  text.textContent = String(message || '');
+  (text as HTMLElement).textContent = String(message || '');
   el.classList.remove('info', 'success', 'warn', 'error');
   el.classList.add(kind || 'info');
-  el.style.display = 'flex';
+  (el as HTMLElement).style.display = 'flex';
   requestAnimationFrame(() => el.classList.add('visible'));
   if (__snackbarTimer) clearTimeout(__snackbarTimer);
   const duration = opts.duration || (kind === 'error' ? 5000 : 3000);
   __snackbarTimer = setTimeout(hideSnackbar, duration);
-  close.onclick = hideSnackbar;
+  (close as HTMLButtonElement).onclick = hideSnackbar;
 }
 function hideSnackbar() {
   const el = document.getElementById('snackbar');
   if (!el) return;
   el.classList.remove('visible');
   if (__snackbarTimer) { clearTimeout(__snackbarTimer); __snackbarTimer = null; }
-  setTimeout(() => { if (el && !el.classList.contains('visible')) el.style.display = 'none'; }, 150);
+  setTimeout(() => { if (el && !el.classList.contains('visible')) (el as HTMLElement).style.display = 'none'; }, 150);
 }

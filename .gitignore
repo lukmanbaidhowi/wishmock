@@ -3,6 +3,7 @@ node_modules/
 
 # Build output
 dist/
+frontend/dist/
 
 # Bun lock (binary variant). Keep bun.lock tracked.
 bun.lockb

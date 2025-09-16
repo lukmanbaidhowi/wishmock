@@ -49,6 +49,8 @@ bun install
 bun run start
 ```
 
+The `prestart` script runs `build`, which now also bundles the frontend TypeScript (`frontend/app.ts`) into `frontend/dist/app.js`.
+
 3) Develop with watch
 ```bash
 # tsc watch + run dist with watcher
@@ -56,6 +58,11 @@ bun run start:develop
 
 # OR run TS directly (no tsc) with Bun watcher
   bun run start:develop:ts
+```
+
+Optional (frontend watch in another terminal):
+```bash
+bun run dev:frontend
 ```
 
 - gRPC servers:
@@ -130,7 +137,7 @@ npm run start:node:watch
 - Open `http://localhost:3000/app/` to:
   - Upload `.proto` and rule files (YAML/JSON) via Admin API
   - View status: gRPC ports, loaded services, and loaded rules (stubs)
-- This UI is static (no build tools) and is served by Express from `frontend/`.
+- The UI is served statically from `frontend/`. The source is TypeScript (`frontend/app.ts`) bundled to `frontend/dist/app.js`.
 
 ### Docker
 Default (with TLS enabled):

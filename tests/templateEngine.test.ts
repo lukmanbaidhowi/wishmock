@@ -235,4 +235,25 @@ describe("Template Engine", () => {
     // In Bun/TS transpile, functions may stringify as arrow functions
     expect(result.includes("function") || result.includes("=>")).toBe(true);
   });
+
+  it("parses commas inside quoted strings and nested function calls", () => {
+    const context = createTemplateContext({ name: "Eve" }, {}, undefined, {
+      // deterministic random for assertion
+      random: (min = 0, max = 1) => min + (max - min) * 0.1234,
+    });
+    const tpl = "{{utils.format('Hello, %s (id=%s)', request.name, utils.random(1000, 9999))}}";
+    const result = renderTemplate(tpl, context) as string;
+    expect(result.startsWith("Hello, Eve (id=")).toBe(true);
+    // 1000 + 0.1234*(9999-1000) = 1000 + 0.1234*8999 ≈ 2110.6266
+    // Our format uses %s and stringifies numbers, so just check it contains '2110'
+    expect(result).toMatch(/\(id=2110/);
+  });
+
+  it("handles escaped quotes within string literals (exercise escape branch)", () => {
+    const context = createTemplateContext({}, {});
+    const tpl = "{{utils.format('%s', 'It\\\'s fine')}}";
+    const result = renderTemplate(tpl, context) as string;
+    // We don't unescape; expect the backslash to be preserved
+    expect(result).toBe("It\\'s fine");
+  });
 });

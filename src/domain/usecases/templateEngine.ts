@@ -96,36 +96,75 @@ function evaluateFunction(expr: string, context: TemplateContext): unknown {
 
 function parseArguments(argsStr: string, context: TemplateContext): unknown[] {
   if (!argsStr.trim()) return [];
-  
+
+  // Split by commas that are not inside quotes or nested parentheses
+  const parts: string[] = [];
+  let current = '';
+  let inSingle = false;
+  let inDouble = false;
+  let escape = false;
+  let parenDepth = 0;
+
+  for (let i = 0; i < argsStr.length; i++) {
+    const ch = argsStr[i];
+
+    if (escape) {
+      current += ch;
+      escape = false;
+      continue;
+    }
+
+    if (ch === '\\') {
+      // Keep escape characters inside strings; not used for evaluation
+      current += ch;
+      escape = (inSingle || inDouble);
+      continue;
+    }
+
+    if (!inSingle && !inDouble) {
+      if (ch === '(') { parenDepth++; current += ch; continue; }
+      if (ch === ')') { parenDepth = Math.max(0, parenDepth - 1); current += ch; continue; }
+      if (ch === ',' && parenDepth === 0) {
+        parts.push(current.trim());
+        current = '';
+        continue;
+      }
+    }
+
+    if (!inDouble && ch === "'" ) { inSingle = !inSingle; current += ch; continue; }
+    if (!inSingle && ch === '"') { inDouble = !inDouble; current += ch; continue; }
+
+    current += ch;
+  }
+  if (current.trim().length > 0) parts.push(current.trim());
+
   const args: unknown[] = [];
-  const parts = argsStr.split(',');
-  
   for (const part of parts) {
     const trimmed = part.trim();
-    
+
     // String literal
-    if ((trimmed.startsWith('"') && trimmed.endsWith('"')) || 
+    if ((trimmed.startsWith('"') && trimmed.endsWith('"')) ||
         (trimmed.startsWith("'") && trimmed.endsWith("'"))) {
       args.push(trimmed.slice(1, -1));
       continue;
     }
-    
+
     // Number
     if (/^-?\d+(\.\d+)?$/.test(trimmed)) {
       args.push(Number(trimmed));
       continue;
     }
-    
+
     // Boolean
     if (trimmed === 'true' || trimmed === 'false') {
       args.push(trimmed === 'true');
       continue;
     }
-    
-    // Property access
+
+    // Nested function/property access
     args.push(evaluateExpression(trimmed, context));
   }
-  
+
   return args;
 }
 

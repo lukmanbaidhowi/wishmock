@@ -8,12 +8,17 @@
   </head>
   <body>
     <header>
-      <h1>wishmock Admin</h1>
-      <nav>
-        <a href="#status">Status</a>
-        <a href="#upload">Upload</a>
-        <a href="#services">Services</a>
-      </nav>
+      <h1>Wishmock Admin</h1>
+      <div class="header-right">
+        <nav>
+          <a href="#status">Status</a>
+          <a href="#upload">Upload</a>
+          <a href="#protos">Protos</a>
+          <a href="#services">Services</a>
+          <a href="#rules-section">Rules</a>
+        </nav>
+        <div id="pageSpinner" class="spinner" aria-live="polite" title="Refreshing..." style="display:none"></div>
+      </div>
     </header>
 
     <main>
@@ -21,34 +26,22 @@
         <span id="snackbarText"></span>
         <button id="snackbarClose" class="snackbar-close" aria-label="Close">×</button>
       </div>
-      <section id="status" class="card">
-        <h2>Status</h2>
-        <button id="refreshStatus">Refresh</button>
+      <section id="status" class="card compact">
+        <div class="card-head">
+          <h2>Status</h2>
+          <button id="refreshStatus">Refresh</button>
+        </div>
         <div class="status-grid">
           <div>
-            <h3>gRPC Ports</h3>
-            <div class="panel">
-              <div>Plaintext: <code id="grpcPlaintextPort">-</code></div>
-              <div>TLS enabled: <code id="grpcTlsEnabled">-</code></div>
-              <div>TLS port: <code id="grpcTlsPort">-</code></div>
-              <div id="grpcTlsErrorWrap" style="display:none">TLS error: <span id="grpcTlsError" class="muted">-</span></div>
+            <div class="row-between panel">
+              <h3>gRPC Ports</h3>
+              <div class="status-inline" aria-live="polite">
+                <span>Plaintext <code id="grpcPlaintextPort">-</code></span>
+                <span>TLS enabled <code id="grpcTlsEnabled">-</code></span>
+                <span>TLS port <code id="grpcTlsPort">-</code></span>
+                <span id="grpcTlsErrorWrap" style="display:none">TLS error <span id="grpcTlsError" class="muted">-</span></span>
+              </div>
             </div>
-          </div>
-          <div>
-            <h3>Loaded Services</h3>
-            <ul id="services"></ul>
-          </div>
-          <div>
-            <h3>Rules (stubs)</h3>
-            <ul id="rules"></ul>
-          </div>
-          <div>
-            <h3>Protos Loaded</h3>
-            <ul id="protosLoaded"></ul>
-          </div>
-          <div>
-            <h3>Protos Skipped</h3>
-            <ul id="protosSkipped"></ul>
           </div>
         </div>
       </section>
@@ -86,6 +79,24 @@
         </div>
       </section>
 
+      <section id="protos" class="card">
+        <h2>Protos</h2>
+        <div class="status-grid">
+          <div>
+            <h3>Loaded</h3>
+            <div class="panel">
+              <ul id="protosLoaded"></ul>
+            </div>
+          </div>
+          <div>
+            <h3>Skipped</h3>
+            <div class="panel">
+              <ul id="protosSkipped"></ul>
+            </div>
+          </div>
+        </div>
+      </section>
+
       <section id="services" class="card">
         <h2>Services & Schemas</h2>
         <div class="services-grid">
@@ -105,6 +116,13 @@
               <div id="schemaContent" style="display:none"></div>
             </div>
           </div>
+        </div>
+      </section>
+
+      <section id="rules-section" class="card">
+        <h2>Rules (stubs)</h2>
+        <div class="panel">
+          <ul id="rules"></ul>
         </div>
       </section>
 

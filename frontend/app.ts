@@ -1,4 +1,3 @@
-import { groupLoadedServices } from './lib/services.ts';
 import { renderSchema as renderSchemaHelper } from './lib/schema.ts';
 import { allowFileByExt } from './lib/files.ts';
 
@@ -35,30 +34,7 @@ async function refreshStatus() {
     if (elTlsPort) (elTlsPort as HTMLElement).textContent = tlsEnabled ? String(tlsPort) : '-';
     if (elTlsErrWrap) elTlsErrWrap.style.display = tlsErr ? 'block' : 'none';
     if (elTlsErr && tlsErr) (elTlsErr as HTMLElement).textContent = tlsErr;
-    const services = $("#services") as HTMLElement;
-    if (services) services.innerHTML = "";
-    // Group loaded methods by service for readability
-    const byService = groupLoadedServices(s.loaded_services || []);
-    [...byService.entries()]
-      .sort((x, y) => String(x[0]).localeCompare(String(y[0])))
-      .forEach(([svc, methods]) => {
-      const li = document.createElement("li");
-      const details = document.createElement("details");
-      // Default collapsed; user can expand individual services
-      (details as any).open = false;
-      const summary = document.createElement("summary");
-      summary.textContent = `${svc} (${methods.length})`;
-      details.appendChild(summary);
-      const ul = document.createElement("ul");
-      methods.sort().forEach((m) => {
-        const mi = document.createElement("li");
-        mi.textContent = m;
-        ul.appendChild(mi);
-      });
-      details.appendChild(ul);
-      li.appendChild(details);
-      services && services.appendChild(li);
-    });
+    // Loaded Services list has been removed from Status to avoid duplication
   const rules = $("#rules") as HTMLElement | null;
     if (rules) rules.innerHTML = "";
     (s.rules || []).forEach((k: string) => {
@@ -83,6 +59,15 @@ async function refreshStatus() {
       li.textContent = `${entry.file}${entry.error ? ` — ${entry.error}` : ""}`;
       ps && ps.appendChild(li);
     });
+
+    // Snackbar notify if there are skipped protos (no inline banner)
+    const skippedCount = (protos.skipped || []).length;
+    // Avoid spamming during polling by only notifying on count changes
+    (window as any).__prevSkippedCount = (window as any).__prevSkippedCount ?? null;
+    if (skippedCount > 0 && (window as any).__prevSkippedCount !== skippedCount) {
+      showSnackbar(`${skippedCount} proto${skippedCount === 1 ? '' : 's'} skipped — check the "Protos Skipped" section for details.`, 'warn', { duration: 6000 });
+    }
+    (window as any).__prevSkippedCount = skippedCount;
   } catch (e: any) {
     console.error(e);
     showSnackbar(`Failed to load status: ${e.message}`, 'error');
@@ -99,6 +84,42 @@ async function uploadFileToPath(endpoint: string, file: File, relPath: string) {
   const content = await file.text();
   const body = JSON.stringify({ path: relPath, content });
   return fetchJSON(endpoint, { method: "POST", body });
+}
+
+function sleep(ms: number) { return new Promise((res) => setTimeout(res, ms)); }
+
+let __loadingCounter = 0;
+function setGlobalLoading(on: boolean) {
+  const s = document.getElementById('pageSpinner') as HTMLElement | null;
+  if (!s) return;
+  if (on) {
+    __loadingCounter++;
+    s.style.display = 'inline-block';
+  } else {
+    __loadingCounter = Math.max(0, __loadingCounter - 1);
+    if (__loadingCounter === 0) s.style.display = 'none';
+  }
+}
+
+async function refreshAll() {
+  await Promise.all([
+    (async () => { try { await refreshStatus(); } catch { /* ignore */ } })(),
+    (async () => { try { await refreshServices(); } catch { /* ignore */ } })(),
+  ]);
+}
+
+async function refreshAfterUpload(kind: 'proto' | 'rule') {
+  // Poll a few times to pick up server-side rebuilds without full page reload
+  setGlobalLoading(true);
+  try {
+    const attempts = 10;
+    for (let i = 0; i < attempts; i++) {
+      await refreshAll();
+      await sleep(800);
+    }
+  } finally {
+    setGlobalLoading(false);
+  }
 }
 
 function bindDropzone(zoneEl: HTMLElement | null, inputEl: HTMLInputElement | null, options?: { acceptExts?: string[]; onPicked?: (file: File) => void; }) {
@@ -150,7 +171,8 @@ function bindUploads() {
     if (!file) return showSnackbar("Choose a .proto file first", 'warn');
     try {
       await uploadFile("/admin/upload/proto", file);
-      showSnackbar("Proto uploaded. The server will rebuild on next change detected.", 'success');
+      showSnackbar("Proto uploaded. Updating status...", 'success');
+      await refreshAfterUpload('proto');
     } catch (err: any) {
       showSnackbar(`Upload failed: ${err.message}`, 'error');
     }
@@ -166,7 +188,8 @@ function bindUploads() {
       if (!relPath) return showSnackbar("Enter a relative path (e.g., common/types.proto)", 'warn');
       try {
         await uploadFileToPath("/admin/upload/proto/path", file, relPath);
-        showSnackbar(`Proto uploaded to protos/${relPath}. The server will rebuild on next change detected.`, 'success');
+        showSnackbar(`Proto uploaded to protos/${relPath}. Updating status...`, 'success');
+        await refreshAfterUpload('proto');
       } catch (err: any) {
         showSnackbar(`Upload failed: ${err.message}`, 'error');
       }
@@ -205,8 +228,8 @@ function bindUploads() {
     if (!file) return showSnackbar("Choose a rule file first", 'warn');
     try {
       await uploadFile("/admin/upload/rule", file);
-      await refreshStatus();
-      showSnackbar("Rule uploaded and reloaded.", 'success');
+      showSnackbar("Rule uploaded. Refreshing...", 'success');
+      await refreshAfterUpload('rule');
     } catch (err: any) {
       showSnackbar(`Upload failed: ${err.message}`, 'error');
     }
@@ -220,7 +243,9 @@ function bindNav() {
     'header nav a'
   ).forEach((a) => {
     a.addEventListener('click', (_e) => {
-      // allow default hash behavior; we could expand later for SPA routing
+      // Highlight active on click immediately (scroll will adjust as needed)
+      const href = (a as HTMLAnchorElement).getAttribute('href') || '';
+      if (href.startsWith('#')) setActiveLink(href.substring(1));
     });
   });
 }
@@ -237,7 +262,19 @@ const auth = {
 
 // Init
 document.addEventListener("DOMContentLoaded", () => {
-  (document.getElementById("refreshStatus") as HTMLButtonElement).addEventListener("click", refreshStatus);
+  // Update CSS var for sticky header offset so anchor jumps don't hide under header
+  const updateHeaderOffsetVar = () => {
+    const header = document.querySelector('header') as HTMLElement | null;
+    const offset = (header ? header.offsetHeight : 0) + 8; // small cushion
+    document.documentElement.style.setProperty('--header-offset', `${offset}px`);
+  };
+  updateHeaderOffsetVar();
+  window.addEventListener('resize', updateHeaderOffsetVar);
+
+  (document.getElementById("refreshStatus") as HTMLButtonElement).addEventListener("click", async () => {
+    setGlobalLoading(true);
+    try { await refreshStatus(); } finally { setGlobalLoading(false); }
+  });
   const rs = document.getElementById("refreshServices") as HTMLButtonElement | null;
   if (rs) rs.addEventListener("click", refreshServices);
   const exp = document.getElementById("expandAllServices") as HTMLButtonElement | null;
@@ -246,6 +283,7 @@ document.addEventListener("DOMContentLoaded", () => {
   if (col) col.addEventListener("click", () => setServicesExpanded(false));
   bindUploads();
   bindNav();
+  observeSectionsForActive();
   refreshStatus();
   if (rs) refreshServices();
 });
@@ -314,6 +352,64 @@ function makeTypeLink(typeName: string) {
   span.title = "Inspect schema";
   span.addEventListener("click", () => inspectType(typeName));
   return span;
+}
+
+// Active section handling
+function setActiveLink(sectionId: string) {
+  const links = $$("header nav a");
+  links.forEach((a) => a.classList.remove('active'));
+  const match = links.find((a) => (a as HTMLAnchorElement).getAttribute('href') === `#${sectionId}`);
+  if (match) match.classList.add('active');
+}
+
+function observeSectionsForActive() {
+  const sections = [
+    document.getElementById('status'),
+    document.getElementById('upload'),
+    document.getElementById('protos'),
+    document.getElementById('services'),
+    document.getElementById('rules-section'),
+  ].filter(Boolean) as HTMLElement[];
+  if (!sections.length) return;
+
+  const header = document.querySelector('header') as HTMLElement | null;
+  const headerOffset = () => (header ? header.offsetHeight : 0) + 8; // small cushion
+
+  let currentId = '';
+  let ticking = false;
+
+  const computeActive = () => {
+    const cutoff = headerOffset();
+    // Pick the last section whose top is above the cutoff (sticky header bottom)
+    let candidate: HTMLElement | null = null;
+    let bestTop = -Infinity;
+    for (const sec of sections) {
+      const top = sec.getBoundingClientRect().top;
+      if (top <= cutoff && top > bestTop) { bestTop = top; candidate = sec; }
+    }
+    // If none above cutoff (near very top), choose the first on the page
+    if (!candidate) {
+      candidate = sections.slice().sort((a, b) => a.getBoundingClientRect().top - b.getBoundingClientRect().top)[0] || null;
+    }
+    const id = candidate?.id || '';
+    if (id && id !== currentId) {
+      currentId = id;
+      setActiveLink(id);
+    }
+  };
+
+  const onScroll = () => {
+    if (!ticking) {
+      ticking = true;
+      requestAnimationFrame(() => { computeActive(); ticking = false; });
+    }
+  };
+
+  // Initial state and listeners
+  setActiveLink('status');
+  computeActive();
+  window.addEventListener('scroll', onScroll, { passive: true });
+  window.addEventListener('resize', onScroll);
 }
 
 async function inspectType(typeName: string) {

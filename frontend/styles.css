@@ -9,10 +9,13 @@
   --danger: #ef4444;
   --warn: #f59e0b;
   --info: #3b82f6;
+  /* dynamic sticky header offset (updated by JS); keeps anchors visible */
+  --header-offset: 80px;
 }
 
 * { box-sizing: border-box; }
 html, body { margin: 0; padding: 0; height: 100%; }
+html { scroll-behavior: smooth; }
 body {
   background: var(--bg);
   color: var(--text);
@@ -26,12 +29,21 @@ header {
   position: sticky; top: 0; background: var(--bg); z-index: 10;
 }
 header h1 { font-size: 18px; margin: 0; }
+header .header-right { display: flex; align-items: center; gap: 10px; margin-left: auto; }
+header nav { display: flex; align-items: center; }
 header nav a { color: var(--text); text-decoration: none; margin-left: 12px; opacity: 0.9; }
 header nav a:hover { opacity: 1; }
+header nav a.active { opacity: 1; color: #a7f3d0; border-bottom: 2px solid var(--accent); padding-bottom: 2px; }
 
 main { max-width: 1100px; margin: 0 auto; padding: 16px; }
+/* Ensure anchored sections account for sticky header height */
+main > section { scroll-margin-top: var(--header-offset); }
 .card { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 16px; margin-bottom: 16px; }
 .card h2 { margin-top: 0; }
+.card.compact { padding: 12px; }
+.card.compact h2 { margin-bottom: 8px; }
+.card.compact #refreshStatus { padding: 6px 10px; font-size: 12px; }
+.card-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; gap: 10px; }
 
 button {
   background: var(--accent); border: none; color: #052e16;
@@ -45,9 +57,19 @@ ul { margin: 8px 0; padding-left: 16px; }
 .status-grid { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); }
 .upload-grid { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); }
 .panel { border: 1px dashed var(--border); padding: 12px; border-radius: 8px; }
+.panel.compact { padding: 8px; }
+.kv { list-style: none; margin: 0; padding: 0; }
+.kv .k { color: var(--muted); margin-right: 6px; }
+.kv-horizontal { display: flex; align-items: center; gap: 10px 16px; flex-wrap: wrap; }
+.kv-horizontal li { display: inline-flex; align-items: center; gap: 6px; }
 .hint { color: var(--muted); font-size: 12px; }
 .type-link { color: #93c5fd; cursor: pointer; margin: 0 4px; }
 .type-link:hover { text-decoration: underline; }
+
+/* Compact status header row */
+.row-between { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.status-inline { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.status-inline code { margin-left: 4px; }
 
 /* Tidy spacing inside upload panels */
 .upload-grid .panel h3 { margin-top: 0; margin-bottom: 8px; }
@@ -73,9 +95,25 @@ ul { margin: 8px 0; padding-left: 16px; }
 .svc-block { margin-bottom: 12px; }
 .muted { color: var(--muted); }
 
+/* Protos section spacing */
+#protos h2 { margin-bottom: 6px; }
+#protos h3 { margin-top: 4px; margin-bottom: 8px; }
+
 
 footer { max-width: 1100px; margin: 0 auto 40px; padding: 0 16px; color: var(--muted); }
 code { color: #86efac; }
+
+/* Header spinner */
+.spinner {
+  width: 14px; height: 14px;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+  margin-left: 10px;
+  opacity: 0.9;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
 
 /* Snackbar (top-center) */
 .snackbar {
@@ -101,3 +139,9 @@ code { color: #86efac; }
 .snackbar.error { border-color: rgba(239,68,68,0.7); }
 .snackbar-close { background: transparent; border: none; color: var(--muted); font-size: 18px; line-height: 1; cursor: pointer; padding: 0 4px; }
 .snackbar-close:hover { color: var(--text); }
+
+/* Alerts */
+.alert { margin-top: 10px; padding: 8px 10px; border-radius: 6px; border: 1px solid var(--border); }
+.alert.warn { border-color: rgba(245,158,11,0.5); background: rgba(245,158,11,0.06); }
+.alert.error { border-color: rgba(239,68,68,0.55); background: rgba(239,68,68,0.06); }
+.alert.success { border-color: rgba(34,197,94,0.55); background: rgba(34,197,94,0.06); }

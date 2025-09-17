@@ -1,0 +1,173 @@
+/*
+ SDK-based MCP server for Wishmock.
+ - Uses @modelcontextprotocol/sdk (McpServer) over stdio
+ - Exposes tools for rules/protos + Admin API helpers
+ - Exposes resources for rules/protos via URI templates
+
+ This file uses the high-level McpServer API from the SDK.
+*/
+
+import { McpServer, ResourceTemplate } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
+import { z } from 'zod';
+import { promises as fs } from 'fs';
+import { resolve } from 'path';
+
+const CWD = process.cwd();
+const RULES_DIR = resolve(CWD, 'rules');
+const PROTOS_DIR = resolve(CWD, 'protos');
+
+async function ensureDir(path: string) { try { await fs.mkdir(path, { recursive: true }); } catch {} }
+async function listFiles(dir: string, exts: string[]) {
+  try {
+    const items = await fs.readdir(dir, { withFileTypes: true });
+    return items.filter(i => i.isFile()).map(i => i.name).filter(n => exts.some(e => n.toLowerCase().endsWith(e)));
+  } catch { return []; }
+}
+
+function textContent(text: string) { return [{ type: 'text', text }]; }
+
+async function httpGet(url: string) {
+  const res = await fetch(url);
+  const text = await res.text();
+  try { return JSON.parse(text); } catch { return text; }
+}
+
+export async function start() {
+  await ensureDir(RULES_DIR);
+  await ensureDir(PROTOS_DIR);
+
+  const server = new McpServer({
+    name: 'wishmock-mcp',
+    version: '0.1.0',
+  }, {
+    capabilities: {
+      tools: {},
+      resources: { listChanged: true },
+    },
+  });
+
+  // Tools
+  server.tool('listRules', 'List rule files under rules/.', async (_extra) => ({
+    content: [],
+    structuredContent: { files: await listFiles(RULES_DIR, ['.yaml', '.yml', '.json']) }
+  }));
+
+  server.tool('readRule', 'Read a rule file content.', z.object({ filename: z.string() }).strict().shape, async ({ filename }: { filename: string }, _extra) => {
+    const text = await fs.readFile(resolve(RULES_DIR, filename), 'utf8');
+    return { content: [], structuredContent: { filename, content: text } };
+  });
+
+  server.tool('writeRule', 'Write content to a rule file (YAML/JSON).', z.object({ filename: z.string(), content: z.string() }).strict().shape, async ({ filename, content }: { filename: string; content: string }, _extra) => {
+    await ensureDir(RULES_DIR);
+    await fs.writeFile(resolve(RULES_DIR, filename), content, 'utf8');
+    return { content: [], structuredContent: { filename, bytes: Buffer.byteLength(content, 'utf8') } };
+  });
+
+  server.tool('listProtos', 'List proto files under protos/.', async (_extra) => ({
+    content: [],
+    structuredContent: { files: await listFiles(PROTOS_DIR, ['.proto']) }
+  }));
+
+  server.tool('readProto', 'Read a proto file content.', z.object({ filename: z.string() }).strict().shape, async ({ filename }: { filename: string }, _extra) => {
+    const text = await fs.readFile(resolve(PROTOS_DIR, filename), 'utf8');
+    return { content: [], structuredContent: { filename, content: text } };
+  });
+
+  server.tool('writeProto', 'Write content to a proto file.', z.object({ filename: z.string(), content: z.string() }).strict().shape, async ({ filename, content }: { filename: string; content: string }, _extra) => {
+    await ensureDir(PROTOS_DIR);
+    await fs.writeFile(resolve(PROTOS_DIR, filename), content, 'utf8');
+    return { content: [], structuredContent: { filename, bytes: Buffer.byteLength(content, 'utf8') } };
+  });
+
+  server.tool('getStatus', 'Fetch admin status (HTTP) or filesystem fallback.', z.object({ url: z.string().optional() }).strict().partial().shape, async ({ url }: { url?: string }, _extra) => {
+    try {
+      const status = await httpGet(url || 'http://localhost:3000/admin/status');
+      return { content: [], structuredContent: { source: 'admin', status } };
+    } catch {
+      const rules = await listFiles(RULES_DIR, ['.yaml', '.yml', '.json']);
+      const protos = await listFiles(PROTOS_DIR, ['.proto']);
+      return { content: [], structuredContent: { source: 'filesystem', status: { rules: rules.length, protos: protos.length } } };
+    }
+  });
+
+  server.tool('uploadProto', 'Upload a proto via Admin API (POST /admin/upload/proto).', z.object({ filename: z.string(), content: z.string(), url: z.string().optional() }).strict().shape, async ({ filename, content, url }: { filename: string; content: string; url?: string }, _extra) => {
+    const res = await fetch(url || 'http://localhost:3000/admin/upload/proto', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ filename, content }) });
+    const text = await res.text();
+    let body: any; try { body = JSON.parse(text); } catch { body = text; }
+    return { content: [], structuredContent: { ok: res.ok, status: res.status, body } };
+  });
+
+  server.tool('uploadRule', 'Upload a rule via Admin API (POST /admin/upload/rule).', z.object({ filename: z.string(), content: z.string(), url: z.string().optional() }).strict().shape, async ({ filename, content, url }: { filename: string; content: string; url?: string }, _extra) => {
+    const res = await fetch(url || 'http://localhost:3000/admin/upload/rule', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ filename, content }) });
+    const text = await res.text();
+    let body: any; try { body = JSON.parse(text); } catch { body = text; }
+    return { content: [], structuredContent: { ok: res.ok, status: res.status, body } };
+  });
+
+  server.tool('listServices', 'List active services and methods via Admin API (GET /admin/services).', z.object({ url: z.string().optional() }).strict().partial().shape, async ({ url }: { url?: string }, _extra) => {
+    const payload = await httpGet(url || 'http://localhost:3000/admin/services');
+    return { content: [], structuredContent: payload };
+  });
+
+  server.tool('describeSchema', 'Describe a message/enum schema via Admin API (GET /admin/schema/:type).', z.object({ type: z.string(), url: z.string().optional() }).strict().shape, async ({ type, url }: { type: string; url?: string }, _extra) => {
+    const payload = await httpGet((url || 'http://localhost:3000') + `/admin/schema/${encodeURIComponent(type)}`);
+    return { content: [], structuredContent: payload };
+  });
+
+  // Resources
+  const rulesTemplate = new ResourceTemplate('wishmock://rules/{filename}', {
+    list: async () => ({
+      resources: (await listFiles(RULES_DIR, ['.yaml', '.yml', '.json'])).map((f) => ({
+        uri: `wishmock://rules/${encodeURIComponent(f)}`,
+        name: `Rule: ${f}`,
+        mimeType: f.endsWith('.json') ? 'application/json' : 'text/yaml',
+      })),
+    }),
+  });
+  server.resource('rules', rulesTemplate, async (_uri, variables) => {
+    const filename = String(variables.filename || '');
+    if (!filename) throw new Error('Invalid resource URI');
+    const text = await fs.readFile(resolve(RULES_DIR, filename), 'utf8');
+    return { contents: [{ uri: `wishmock://rules/${encodeURIComponent(filename)}`, mimeType: filename.endsWith('.json') ? 'application/json' : 'text/yaml', text }] };
+  });
+
+  const protosTemplate = new ResourceTemplate('wishmock://protos/{filename}', {
+    list: async () => ({
+      resources: (await listFiles(PROTOS_DIR, ['.proto'])).map((f) => ({
+        uri: `wishmock://protos/${encodeURIComponent(f)}`,
+        name: `Proto: ${f}`,
+        mimeType: 'text/x-proto',
+      })),
+    }),
+  });
+  server.resource('protos', protosTemplate, async (_uri, variables) => {
+    const filename = String(variables.filename || '');
+    if (!filename) throw new Error('Invalid resource URI');
+    const text = await fs.readFile(resolve(PROTOS_DIR, filename), 'utf8');
+    return { contents: [{ uri: `wishmock://protos/${encodeURIComponent(filename)}`, mimeType: 'text/x-proto', text }] };
+  });
+
+  const transport = new StdioServerTransport();
+  await server.connect(transport);
+}
+
+export default start;
+
+// If this module is executed directly (not imported), start the server.
+// Works in both Bun and Node ESM environments.
+import { fileURLToPath } from 'url';
+const isDirectRun = (() => {
+  try {
+    return !!(process?.argv?.[1] && fileURLToPath(import.meta.url) === process.argv[1]);
+  } catch {
+    return false;
+  }
+})();
+
+if (isDirectRun) {
+  start().catch((err) => {
+    console.error('[mcp-stdio] failed to start:', err);
+    process.exit(1);
+  });
+}

@@ -6,7 +6,8 @@
   "license": "MIT",
   "main": "dist/app.js",
   "bin": {
-    "wishmock": "bin/wishmock.js"
+    "wishmock": "bin/wishmock.js",
+    "wishmock-mcp": "bin/wishmock-mcp.js"
   },
   "files": [
     "dist/",
@@ -25,7 +26,8 @@
     "grpc-node-server-reflection": "^1.0.2",
     "js-yaml": "^4.1.0",
     "lodash.get": "^4.4.2",
-    "protobufjs": "^7.4.0"
+    "protobufjs": "^7.4.0",
+    "@modelcontextprotocol/sdk": "^1.10.0"
   },
   "devDependencies": {
     "typescript": "^5.6.3",
@@ -47,6 +49,12 @@
     "coverage:html": "bun scripts/coverage-html.mjs",
     "start:node": "tsc -p tsconfig.json && node dist/app.js",
     "start:node:watch": "node --watch dist/app.js",
+    "start:mcp": "bun dist/mcp/server.sdk.js",
+    "start:mcp:ts": "bun --watch src/mcp/server.sdk.ts",
+    "start:mcp:http": "bun dist/mcp/server.sse.js",
+    "start:mcp:http:ts": "bun --watch src/mcp/server.sse.ts",
+    "prestart:both:mcp": "bun run build",
+    "start:both:mcp": "bun scripts/dev.mcp.mjs",
     "test:readme-examples": "bash scripts/test-readme-examples.sh",
     "test:readme-examples:import-proto": "bash scripts/test-readme-examples-import-proto.sh",
     "prepublishOnly": "tsc -p tsconfig.json"

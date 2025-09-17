@@ -40,8 +40,11 @@ COPY frontend/styles.css ./frontend/styles.css
 COPY protos ./protos
 COPY rules ./rules
 
-EXPOSE 50050 50051 3000
+# Entrypoint to optionally run the MCP server via ENABLE_MCP=true
+COPY bin/entrypoint.sh ./bin/entrypoint.sh
+RUN chmod +x ./bin/entrypoint.sh
 
-# Run the already-built server directly to avoid npm lifecycle prestart
-# (which would require devDependencies like TypeScript at runtime).
-CMD ["bun", "dist/app.js"]
+EXPOSE 50050 50051 3000 9090
+
+# Use entrypoint to optionally launch MCP server before main app
+ENTRYPOINT ["/app/bin/entrypoint.sh"]

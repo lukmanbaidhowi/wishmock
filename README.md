@@ -594,6 +594,82 @@ grpcurl -import-path protos -proto streaming.proto -plaintext -d '{"user_id":"te
 - **Safe Evaluation**: Invalid expressions gracefully fall back to empty strings
 - **Nested Support**: Templates work in nested objects and arrays
 
+## MCP Server (Model Context Protocol)
+- MCP stdio server lets MCP clients read/write `rules/`, `protos/`, and query status via Admin API.
+- Run locally:
+  - Build: `bun run build`
+  - Start: `bun run start:mcp`
+  - CLI: `wishmock-mcp` (after build)
+- Docker: toggle MCP inside the container
+  - Stdio MCP: set `ENABLE_MCP=true`
+  - SSE MCP (for Cursor URL): set `ENABLE_MCP_SSE=true` (port `9090` by default)
+  - Example: `ENABLE_MCP_SSE=true docker compose up --build`
+- Tools:
+  - `listRules`, `readRule`, `writeRule`
+  - `listProtos`, `readProto`, `writeProto`
+  - `getStatus` (Admin HTTP or filesystem fallback)
+  - `uploadProto`, `uploadRule` (Admin API POST)
+  - `listServices`, `describeSchema` (Admin API GET)
+- Resources:
+  - `wishmock://rules/<filename>` (YAML/JSON)
+  - `wishmock://protos/<filename>` (text/x-proto)
+- Notes:
+  - Uses `@modelcontextprotocol/sdk` (stdio). For Cursor with SSE, use the HTTP SSE server and configure Cursor to point to `/sse`.
+
+### MCP Client Config Examples
+
+SSE (URL-based clients):
+
+```
+{
+  "mcpServers": {
+    "wishmock": {
+      "url": "http://127.0.0.1:9090/sse",
+      "transport": "sse"
+    }
+  }
+}
+```
+
+Stdio (process-spawning clients):
+
+```
+{
+  "mcpServers": {
+    "wishmock": {
+      "command": "node",
+      "args": ["dist/mcp/server.sdk.js"],
+      "transport": "stdio",
+      "cwd": "/path/to/wishmock"
+    }
+  }
+}
+```
+
+Notes:
+- Build once: `bun install && bun run build`
+- Start SSE server: `bun run start:mcp:http` (default `http://127.0.0.1:9090/sse`)
+- Start stdio server: `bun run start:mcp` or `wishmock-mcp`
+- Docker: set `ENABLE_MCP_SSE=true` to expose `http://127.0.0.1:9090/sse`
+
+Quick test SSE without an MCP client:
+```
+# Terminal A: listen to SSE
+curl -N http://127.0.0.1:9090/sse
+
+# Terminal B: send a JSON-RPC request
+curl -s -X POST -H 'content-type: application/json' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' \
+  http://127.0.0.1:9090/message
+```
+
+### Start Both (Server + MCP) with Bun and env file
+- Prepare env: copy or edit `.env.tls.mcp` (TLS + MCP SSE defaults)
+- Run both with one command (builds first):
+  - `bun --env-file=.env.tls.mcp run start:both:mcp`
+- Switch transport to stdio (optional):
+  - `MCP_TRANSPORT=stdio bun --env-file=.env.tls.mcp run start:both:mcp`
+
 ## Roadmap
 - Create, edit, and validate rule bodies inline with schema validation.
 - Preview matched response given sample request and metadata.

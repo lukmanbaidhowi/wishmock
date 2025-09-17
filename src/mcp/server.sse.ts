@@ -1,0 +1,287 @@
+/*
+ HTTP SSE MCP server for Wishmock.
+ - Exposes MCP over Server-Sent Events at GET /sse
+ - Accepts client -> server JSON-RPC via POST /message (also supports POST /rpc and POST /)
+ - Implements tools/resources similar to the stdio server
+*/
+
+import express from 'express';
+import { promises as fs } from 'fs';
+import { resolve } from 'path';
+import http from 'http';
+
+type Json = any;
+
+const CWD = process.cwd();
+const RULES_DIR = resolve(CWD, 'rules');
+const PROTOS_DIR = resolve(CWD, 'protos');
+
+const MCP_HTTP_PORT = parseInt(process.env.MCP_HTTP_PORT || '9090', 10);
+const MCP_HTTP_HOST = process.env.MCP_HTTP_HOST || '0.0.0.0';
+
+// Protocol negotiation
+const SUPPORTED_PROTOCOL_VERSIONS = [
+  '2025-06-18',
+  '2025-03-26',
+  '2024-11-05',
+  '2024-10-07',
+];
+const DEFAULT_PROTOCOL_VERSION = SUPPORTED_PROTOCOL_VERSIONS[0];
+
+// Simple per-process session identifier used for Streamable HTTP
+const SESSION_ID = (process.env.MCP_SESSION_ID ||
+  `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`);
+
+type JsonRpcRequest = { jsonrpc: '2.0'; id?: number | string; method: string; params?: Json };
+type JsonRpcResponse = { jsonrpc: '2.0'; id: number | string | null; result?: Json; error?: { code: number; message: string; data?: Json } };
+
+function ok(id: number | string | null, result: Json): JsonRpcResponse { return { jsonrpc: '2.0', id, result }; }
+function err(id: number | string | null, message: string, code = -32603, data?: Json): JsonRpcResponse {
+  return { jsonrpc: '2.0', id, error: { code, message, data } };
+}
+
+async function ensureDir(path: string) { await fs.mkdir(path, { recursive: true }); }
+async function listFiles(dir: string, exts: string[]) {
+  try {
+    const entries = await fs.readdir(dir, { withFileTypes: true });
+    return entries.filter((d) => d.isFile()).map((d) => d.name).filter((n) => exts.some((e) => n.toLowerCase().endsWith(e)));
+  } catch { return []; }
+}
+
+function safeJson(text: string): any { try { return JSON.parse(text); } catch { return text; } }
+
+// -------- Tool implementations (filesystem + Admin API) --------
+async function tool_listRules() { return { files: await listFiles(RULES_DIR, ['.yaml', '.yml', '.json']) }; }
+async function tool_readRule(args: { filename: string }) {
+  if (!args?.filename) throw new Error('filename is required');
+  const content = await fs.readFile(resolve(RULES_DIR, args.filename), 'utf8');
+  return { filename: args.filename, content };
+}
+async function tool_writeRule(args: { filename: string; content: string }) {
+  if (!args?.filename || typeof args.content !== 'string') throw new Error('filename and content required');
+  await ensureDir(RULES_DIR);
+  await fs.writeFile(resolve(RULES_DIR, args.filename), args.content, 'utf8');
+  return { filename: args.filename, bytes: Buffer.byteLength(args.content, 'utf8') };
+}
+async function tool_listProtos() { return { files: await listFiles(PROTOS_DIR, ['.proto']) }; }
+async function tool_readProto(args: { filename: string }) {
+  if (!args?.filename) throw new Error('filename is required');
+  const content = await fs.readFile(resolve(PROTOS_DIR, args.filename), 'utf8');
+  return { filename: args.filename, content };
+}
+async function tool_writeProto(args: { filename: string; content: string }) {
+  if (!args?.filename || typeof args.content !== 'string') throw new Error('filename and content required');
+  await ensureDir(PROTOS_DIR);
+  await fs.writeFile(resolve(PROTOS_DIR, args.filename), args.content, 'utf8');
+  return { filename: args.filename, bytes: Buffer.byteLength(args.content, 'utf8') };
+}
+async function httpGetJson(urlStr: string): Promise<any> {
+  const res = await fetch(urlStr);
+  const text = await res.text();
+  return safeJson(text);
+}
+async function tool_getStatus(args?: { url?: string }) {
+  const url = args?.url || 'http://localhost:3000/admin/status';
+  try {
+    const payload = await httpGetJson(url);
+    return { source: 'admin', status: payload };
+  } catch {
+    const rules = await listFiles(RULES_DIR, ['.yaml', '.yml', '.json']);
+    const protos = await listFiles(PROTOS_DIR, ['.proto']);
+    return { source: 'filesystem', status: { rules: rules.length, protos: protos.length } };
+  }
+}
+async function tool_uploadProto(args: { filename: string; content: string; url?: string }) {
+  if (!args?.filename || typeof args.content !== 'string') throw new Error('filename and content required');
+  const url = args.url || 'http://localhost:3000/admin/upload/proto';
+  const res = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ filename: args.filename, content: args.content }) });
+  const text = await res.text();
+  return { ok: res.ok, status: res.status, body: safeJson(text) };
+}
+async function tool_uploadRule(args: { filename: string; content: string; url?: string }) {
+  if (!args?.filename || typeof args.content !== 'string') throw new Error('filename and content required');
+  const url = args.url || 'http://localhost:3000/admin/upload/rule';
+  const res = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ filename: args.filename, content: args.content }) });
+  const text = await res.text();
+  return { ok: res.ok, status: res.status, body: safeJson(text) };
+}
+async function tool_listServices(args?: { url?: string }) {
+  const url = args?.url || 'http://localhost:3000/admin/services';
+  return await httpGetJson(url);
+}
+async function tool_describeSchema(args: { type: string; url?: string }) {
+  if (!args?.type) throw new Error('type is required');
+  const url = (args.url || 'http://localhost:3000') + `/admin/schema/${encodeURIComponent(args.type)}`;
+  return await httpGetJson(url);
+}
+
+async function listResources() {
+  const ruleFiles = await listFiles(RULES_DIR, ['.yaml', '.yml', '.json']);
+  const protoFiles = await listFiles(PROTOS_DIR, ['.proto']);
+  return [
+    ...ruleFiles.map((f) => ({ uri: `wishmock://rules/${encodeURIComponent(f)}`, name: `Rule: ${f}`, mimeType: f.endsWith('.json') ? 'application/json' : 'text/yaml' })),
+    ...protoFiles.map((f) => ({ uri: `wishmock://protos/${encodeURIComponent(f)}`, name: `Proto: ${f}`, mimeType: 'text/x-proto' })),
+  ];
+}
+async function readResource(uri: string) {
+  if (!uri.startsWith('wishmock://')) throw new Error('Unsupported URI');
+  const [, , kind, rest] = uri.split('/');
+  const filename = decodeURIComponent(rest || '');
+  if (!filename) throw new Error('Invalid resource URI');
+  if (kind === 'rules') {
+    const text = await fs.readFile(resolve(RULES_DIR, filename), 'utf8');
+    return { uri, mimeType: filename.endsWith('.json') ? 'application/json' : 'text/yaml', text };
+  }
+  if (kind === 'protos') {
+    const text = await fs.readFile(resolve(PROTOS_DIR, filename), 'utf8');
+    return { uri, mimeType: 'text/x-proto', text };
+  }
+  throw new Error('Unknown resource kind');
+}
+
+async function handleRequest(msg: JsonRpcRequest): Promise<JsonRpcResponse> {
+  const { id = null, method, params } = msg || {} as any;
+  try {
+    switch (method) {
+      case 'initialize': {
+        const requested = String((params as any)?.protocolVersion || '') || DEFAULT_PROTOCOL_VERSION;
+        const protocolVersion = SUPPORTED_PROTOCOL_VERSIONS.includes(requested) ? requested : DEFAULT_PROTOCOL_VERSION;
+        return ok(id, { protocolVersion, serverInfo: { name: 'wishmock-mcp-sse', version: '0.1.0' }, capabilities: { tools: {}, resources: { listChanged: true } } });
+      }
+      case 'ping':
+        return ok(id, { ok: true });
+      case 'tools/list':
+        return ok(id, { tools: [
+          { name: 'listRules', description: 'List rule files under rules/.', inputSchema: { type: 'object', properties: {}, additionalProperties: false } },
+          { name: 'readRule', description: 'Read a rule file content.', inputSchema: { type: 'object', properties: { filename: { type: 'string' } }, required: ['filename'], additionalProperties: false } },
+          { name: 'writeRule', description: 'Write content to a rule file (YAML/JSON).', inputSchema: { type: 'object', properties: { filename: { type: 'string' }, content: { type: 'string' } }, required: ['filename', 'content'], additionalProperties: false } },
+          { name: 'listProtos', description: 'List proto files under protos/.', inputSchema: { type: 'object', properties: {}, additionalProperties: false } },
+          { name: 'readProto', description: 'Read a proto file content.', inputSchema: { type: 'object', properties: { filename: { type: 'string' } }, required: ['filename'], additionalProperties: false } },
+          { name: 'writeProto', description: 'Write content to a proto file.', inputSchema: { type: 'object', properties: { filename: { type: 'string' }, content: { type: 'string' } }, required: ['filename', 'content'], additionalProperties: false } },
+          { name: 'getStatus', description: 'Fetch admin status (HTTP) or filesystem fallback.', inputSchema: { type: 'object', properties: { url: { type: 'string' } }, additionalProperties: false } },
+          { name: 'uploadProto', description: 'Upload a proto via Admin API (POST /admin/upload/proto).', inputSchema: { type: 'object', properties: { filename: { type: 'string' }, content: { type: 'string' }, url: { type: 'string' } }, required: ['filename', 'content'], additionalProperties: false } },
+          { name: 'uploadRule', description: 'Upload a rule via Admin API (POST /admin/upload/rule).', inputSchema: { type: 'object', properties: { filename: { type: 'string' }, content: { type: 'string' }, url: { type: 'string' } }, required: ['filename', 'content'], additionalProperties: false } },
+          { name: 'listServices', description: 'List active services and methods via Admin API (GET /admin/services).', inputSchema: { type: 'object', properties: { url: { type: 'string' } }, additionalProperties: false } },
+          { name: 'describeSchema', description: 'Describe a message/enum schema via Admin API (GET /admin/schema/:type).', inputSchema: { type: 'object', properties: { type: { type: 'string' }, url: { type: 'string' } }, required: ['type'], additionalProperties: false } },
+        ]});
+      case 'tools/call': {
+        const { name, arguments: args } = (params || {}) as { name: string; arguments?: any };
+        if (!name) return err(id, 'Tool name is required', -32602);
+        let result: any;
+        if (name === 'listRules') result = await tool_listRules();
+        else if (name === 'readRule') result = await tool_readRule(args);
+        else if (name === 'writeRule') result = await tool_writeRule(args);
+        else if (name === 'listProtos') result = await tool_listProtos();
+        else if (name === 'readProto') result = await tool_readProto(args);
+        else if (name === 'writeProto') result = await tool_writeProto(args);
+        else if (name === 'getStatus') result = await tool_getStatus(args);
+        else if (name === 'uploadProto') result = await tool_uploadProto(args);
+        else if (name === 'uploadRule') result = await tool_uploadRule(args);
+        else if (name === 'listServices') result = await tool_listServices(args);
+        else if (name === 'describeSchema') result = await tool_describeSchema(args);
+        else return err(id, `Unknown tool: ${name}`, -32601);
+        return ok(id, { content: [{ type: 'text', text: JSON.stringify(result) }], isError: false });
+      }
+      case 'resources/list': {
+        const resources = await listResources();
+        return ok(id, { resources });
+      }
+      case 'resources/read': {
+        const { uri } = (params || {}) as { uri: string };
+        if (!uri) return err(id, 'uri is required', -32602);
+        const { mimeType, text } = await readResource(uri);
+        return ok(id, { contents: [{ uri, mimeType, text }] });
+      }
+      default:
+        return err(id, `Method not found: ${method}`, -32601);
+    }
+  } catch (e: any) {
+    return err(id, e?.message || 'Internal error', -32603);
+  }
+}
+
+export async function start() {
+  await ensureDir(RULES_DIR);
+  await ensureDir(PROTOS_DIR);
+
+  const app = express();
+  app.use(express.json({ limit: '5mb' }));
+
+  // Connected SSE clients
+  const clients = new Set<any>();
+
+  function sendEvent(obj: any) {
+    const data = JSON.stringify(obj);
+    for (const res of clients) {
+      (res as any).write(`data: ${data}\n\n`);
+    }
+  }
+
+  app.get('/sse', (req: any, res: any) => {
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    res.flushHeaders?.();
+    clients.add(res);
+    // Initial hello event (optional)
+    sendEvent({ jsonrpc: '2.0', method: 'server/ready', params: { name: 'wishmock-mcp-sse' } });
+
+    const keepalive = setInterval(() => {
+      try { (res as any).write(': keepalive\n\n'); } catch {}
+    }, 15000);
+
+    req.on('close', () => {
+      clearInterval(keepalive);
+      clients.delete(res);
+    });
+  });
+
+  async function handleIncoming(req: any, res: any) {
+    const msg = (req.body as unknown) as JsonRpcRequest;
+    // If this is a notification (no id), accept and return 202 with no body
+    if (msg && (msg as any).id === undefined) {
+      // For streamable HTTP, include session id header
+      res.setHeader('mcp-session-id', SESSION_ID);
+      res.status(202).end();
+      return;
+    }
+    const response = await handleRequest(msg);
+    // Push via SSE stream
+    sendEvent(response);
+    // Include session id header for streamable HTTP
+    res.setHeader('mcp-session-id', SESSION_ID);
+    // Also return immediate JSON response for convenience
+    try { res.json(response); } catch { res.setHeader('Content-Type','application/json'); res.end(JSON.stringify(response)); }
+  }
+
+  // Accept POSTs to the SSE path as some clients send to the same endpoint
+  app.post('/sse', handleIncoming);
+  app.post('/message', handleIncoming);
+  app.post('/rpc', handleIncoming);
+  app.post('/', handleIncoming);
+
+  const server = http.createServer(app);
+  server.listen(MCP_HTTP_PORT, MCP_HTTP_HOST, () => {
+    console.log(`[mcp-sse] listening on http://${MCP_HTTP_HOST}:${MCP_HTTP_PORT}/sse`);
+  });
+}
+
+export default start;
+
+// If this module is executed directly (not imported), start the server.
+// Works in both Bun and Node ESM environments.
+import { fileURLToPath } from 'url';
+const isDirectRun = (() => {
+  try {
+    return !!(process?.argv?.[1] && fileURLToPath(import.meta.url) === process.argv[1]);
+  } catch {
+    return false;
+  }
+})();
+
+if (isDirectRun) {
+  start().catch((err) => {
+    console.error('[mcp-sse] failed to start:', err);
+    process.exit(1);
+  });
+}

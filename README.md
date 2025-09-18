@@ -1,20 +1,16 @@
 # wishmock
 
-This project is a simple gRPC mock server built with Bun 1.x (tested with 1.2.20), `@grpc/grpc-js`, and `protobufjs`.  
-It allows you to load `.proto` files directly (no conversion needed) and define mock rules in YAML/JSON.  
-Supports hot reload for both proto files and rules.
+Wishmock is a Bun 1.x gRPC mock platform that bundles the server, admin HTTP API, and lightweight web UI in one package.  
+Load `.proto` files directly, define rule-based responses in YAML/JSON, and iterate quickly with hot reload.  
+The project ships with MCP servers, a multi-stage Docker build (now including TypeScript declaration shims), and first-class tooling for grpcurl and observability experiments.
 
 ## Features
-- **Proto Loading** - Load `.proto` files directly using protobufjs
-- **Hot Reload** - Proto files (soft restart) and rules (no restart needed)
-- **Request Matching** - Match request fields & metadata for conditional responses
-- **YAML/JSON Rules** - Define responses in YAML/JSON rules
-- **Advanced Operators** - Regex, contains, in, exists, numeric matching
-- **Priority Selection** - Highest numeric `priority` wins (default 0; order as tiebreaker)
-- **TLS/mTLS Support** - Secure connections with client certificate validation
-- **Server Streaming** - Stream multiple responses with configurable delays
-- **Infinite Loop Streaming** - Continuous streaming with random order support
-- **Server Reflection** - grpcurl auto-discovery on plaintext and TLS ports
+- **Dynamic Proto Loading** – Read `.proto` definitions at runtime via `protobufjs`
+- **Rule Engine & Templates** – YAML/JSON rules with request/metadata matching, operators, and templated responses
+- **Instant Hot Reload** – Proto edits trigger soft restarts; rule changes apply without restarting
+- **Streaming & Chaos Modes** – Unary, server, client, and bidirectional streaming with delays, loops, and random order
+- **TLS/mTLS & Reflection** – Plaintext and TLS ports with server reflection for grpcurl and clients
+- **Admin & UI** – REST Admin API, static web console, and MCP (SDK/SSE) endpoints for automation workflows
 
 ## Project Structure
 ```

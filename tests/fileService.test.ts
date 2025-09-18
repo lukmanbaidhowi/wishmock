@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from "bun:test";
 import fs from "fs";
 import path from "path";
-import { listFiles, readFile, writeFile } from "../src/infrastructure/file/fileService.js";
+import { listFiles, readFile, writeFile } from "../src/infrastructure/fileService.js";
 
 function makeTmpDir(prefix = "fs-") {
   const base = path.join("tmp");

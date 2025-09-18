@@ -1,5 +1,5 @@
 import path from "path";
-import { listFiles, readFile, writeFile, writeFileAtPath } from '../../infrastructure/file/fileService.js';
+import { listFiles, readFile, writeFile, writeFileAtPath } from '../../infrastructure/fileService.js';
 import { sendError, sendNotFound, sendSuccess } from './responseHelper.js';
 import { validateFilename, validateContent, validateUploadData, validateRelativePath } from './validator.js';
 import { FILE_EXTENSIONS } from './constants.js';

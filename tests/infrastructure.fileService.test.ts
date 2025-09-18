@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import fs from "fs";
 import path from "path";
-import { writeFileAtPath } from "../src/infrastructure/file/fileService.js";
+import { writeFileAtPath } from "../src/infrastructure/fileService.js";
 
 function makeTempRoot(): string {
   const base = path.join(process.cwd(), "tmp", "fileService");

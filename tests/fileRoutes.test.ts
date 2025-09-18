@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from "bun:test";
 import { setupFileRoutes } from "../src/interfaces/http/fileRoutes.js";
-import * as FileService from "../src/infrastructure/file/fileService.js";
+import * as FileService from "../src/infrastructure/fileService.js";
 import { HTTP_STATUS } from "../src/interfaces/http/constants.js";
 
 // Reusable mock response

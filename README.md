@@ -602,7 +602,7 @@ grpcurl -import-path protos -proto streaming.proto -plaintext -d '{"user_id":"te
   - CLI: `wishmock-mcp` (after build)
 - Docker: toggle MCP inside the container
   - Stdio MCP: set `ENABLE_MCP=true`
-  - SSE MCP (for Cursor URL): set `ENABLE_MCP_SSE=true` (port `9090` by default)
+  - SSE MCP: set `ENABLE_MCP_SSE=true` (port `9090` by default)
   - Example: `ENABLE_MCP_SSE=true docker compose up --build`
 - Tools:
   - `listRules`, `readRule`, `writeRule`
@@ -614,11 +614,12 @@ grpcurl -import-path protos -proto streaming.proto -plaintext -d '{"user_id":"te
   - `wishmock://rules/<filename>` (YAML/JSON)
   - `wishmock://protos/<filename>` (text/x-proto)
 - Notes:
-  - Uses `@modelcontextprotocol/sdk` (stdio). For Cursor with SSE, use the HTTP SSE server and configure Cursor to point to `/sse`.
+  - Uses `@modelcontextprotocol/sdk` (stdio). For SSE-based clients, use the HTTP SSE server and point them to `/sse`.
+  - Path resolution: the MCP server locates `rules/` and `protos/` via env overrides (`WISHMOCK_BASE_DIR`, `WISHMOCK_RULES_DIR`, `WISHMOCK_PROTOS_DIR`) or automatically relative to the server module path.
 
 ### MCP Client Config Examples
 
-SSE (URL-based clients):
+SSE (URL-based clients)
 
 ```
 {
@@ -631,19 +632,64 @@ SSE (URL-based clients):
 }
 ```
 
-Stdio (process-spawning clients):
+TOML equivalent:
+
+```
+[mcpServers.wishmock]
+url = "http://127.0.0.1:9090/sse"
+transport = "sse"
+```
+
+Stdio (process-spawning clients)
 
 ```
 {
   "mcpServers": {
     "wishmock": {
       "command": "node",
-      "args": ["dist/mcp/server.sdk.js"],
-      "transport": "stdio",
-      "cwd": "/path/to/wishmock"
+      "args": ["/path/to/wishmock/dist/mcp/server.sdk.js"],
+      "transport": "stdio"
     }
   }
 }
+```
+
+TOML equivalent:
+
+```
+[mcpServers.wishmock]
+command = "node"
+args = ["/path/to/wishmock/dist/mcp/server.sdk.js"]
+transport = "stdio"
+```
+
+Docker exec stdio (attach to container)
+
+JSON:
+
+```
+{
+  "mcpServers": {
+    "wishmock": {
+      "command": "docker",
+      "args": ["exec", "-i", "wishmock", "bun", "/app/dist/mcp/server.sdk.js"],
+      "transport": "stdio",
+      "env": { "WISHMOCK_BASE_DIR": "/app" }
+    }
+  }
+}
+```
+
+TOML equivalent:
+
+```
+[mcpServers.wishmock]
+command = "docker"
+args = ["exec", "-i", "wishmock", "bun", "/app/dist/mcp/server.sdk.js"]
+transport = "stdio"
+
+[mcpServers.wishmock.env]
+WISHMOCK_BASE_DIR = "/app"
 ```
 
 Notes:
@@ -657,10 +703,18 @@ Quick test SSE without an MCP client:
 # Terminal A: listen to SSE
 curl -N http://127.0.0.1:9090/sse
 
-# Terminal B: send a JSON-RPC request
+# Terminal B: send a JSON-RPC request (response comes back in HTTP body)
 curl -s -X POST -H 'content-type: application/json' \
   -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' \
   http://127.0.0.1:9090/message
+
+# Send a raw SSE event (JSON-RPC notification over SSE stream)
+curl -s -X POST -H 'content-type: application/json' \
+  -d '{"method":"notifications/resources/list_changed"}' \
+  http://127.0.0.1:9090/event
+
+# Convenience endpoint to signal resources changed
+curl -s -X POST http://127.0.0.1:9090/notify/resources-changed
 ```
 
 ### Start Both (Server + MCP) with Bun and env file

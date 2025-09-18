@@ -9,12 +9,11 @@ import express from 'express';
 import { promises as fs } from 'fs';
 import { resolve } from 'path';
 import http from 'http';
+import { fileURLToPath } from 'url';
 
 type Json = any;
-
-const CWD = process.cwd();
-const RULES_DIR = resolve(CWD, 'rules');
-const PROTOS_DIR = resolve(CWD, 'protos');
+import { ensureDir, listFiles, resolveBasePaths, safeJson, httpGetJson } from './utils.js';
+const { RULES_DIR, PROTOS_DIR } = resolveBasePaths(import.meta.url);
 
 const MCP_HTTP_PORT = parseInt(process.env.MCP_HTTP_PORT || '9090', 10);
 const MCP_HTTP_HOST = process.env.MCP_HTTP_HOST || '0.0.0.0';
@@ -40,15 +39,11 @@ function err(id: number | string | null, message: string, code = -32603, data?: 
   return { jsonrpc: '2.0', id, error: { code, message, data } };
 }
 
-async function ensureDir(path: string) { await fs.mkdir(path, { recursive: true }); }
-async function listFiles(dir: string, exts: string[]) {
-  try {
-    const entries = await fs.readdir(dir, { withFileTypes: true });
-    return entries.filter((d) => d.isFile()).map((d) => d.name).filter((n) => exts.some((e) => n.toLowerCase().endsWith(e)));
-  } catch { return []; }
-}
+// utils imported above
 
-function safeJson(text: string): any { try { return JSON.parse(text); } catch { return text; } }
+// Simple cross-scope notifier so tools can emit SSE events
+let notifyFn: ((obj: any) => void) | null = null;
+function notify(obj: any) { try { notifyFn?.(obj); } catch {} }
 
 // -------- Tool implementations (filesystem + Admin API) --------
 async function tool_listRules() { return { files: await listFiles(RULES_DIR, ['.yaml', '.yml', '.json']) }; }
@@ -61,6 +56,7 @@ async function tool_writeRule(args: { filename: string; content: string }) {
   if (!args?.filename || typeof args.content !== 'string') throw new Error('filename and content required');
   await ensureDir(RULES_DIR);
   await fs.writeFile(resolve(RULES_DIR, args.filename), args.content, 'utf8');
+  notify({ jsonrpc: '2.0', method: 'notifications/resources/list_changed', params: {} });
   return { filename: args.filename, bytes: Buffer.byteLength(args.content, 'utf8') };
 }
 async function tool_listProtos() { return { files: await listFiles(PROTOS_DIR, ['.proto']) }; }
@@ -73,13 +69,10 @@ async function tool_writeProto(args: { filename: string; content: string }) {
   if (!args?.filename || typeof args.content !== 'string') throw new Error('filename and content required');
   await ensureDir(PROTOS_DIR);
   await fs.writeFile(resolve(PROTOS_DIR, args.filename), args.content, 'utf8');
+  notify({ jsonrpc: '2.0', method: 'notifications/resources/list_changed', params: {} });
   return { filename: args.filename, bytes: Buffer.byteLength(args.content, 'utf8') };
 }
-async function httpGetJson(urlStr: string): Promise<any> {
-  const res = await fetch(urlStr);
-  const text = await res.text();
-  return safeJson(text);
-}
+// httpGetJson imported from utils
 async function tool_getStatus(args?: { url?: string }) {
   const url = args?.url || 'http://localhost:3000/admin/status';
   try {
@@ -216,6 +209,14 @@ export async function start() {
       (res as any).write(`data: ${data}\n\n`);
     }
   }
+  function sendNamedEvent(eventName: string, obj: any) {
+    const data = JSON.stringify(obj);
+    for (const res of clients) {
+      (res as any).write(`event: ${eventName}\n`);
+      (res as any).write(`data: ${data}\n\n`);
+    }
+  }
+  notifyFn = sendEvent;
 
   app.get('/sse', (req: any, res: any) => {
     res.setHeader('Content-Type', 'text/event-stream');
@@ -223,8 +224,9 @@ export async function start() {
     res.setHeader('Connection', 'keep-alive');
     res.flushHeaders?.();
     clients.add(res);
-    // Initial hello event (optional)
+    // Initial hello + resource hint
     sendEvent({ jsonrpc: '2.0', method: 'server/ready', params: { name: 'wishmock-mcp-sse' } });
+    sendEvent({ jsonrpc: '2.0', method: 'notifications/resources/list_changed', params: {} });
 
     const keepalive = setInterval(() => {
       try { (res as any).write(': keepalive\n\n'); } catch {}
@@ -234,6 +236,30 @@ export async function start() {
       clearInterval(keepalive);
       clients.delete(res);
     });
+  });
+
+  // Simple endpoint to broadcast arbitrary SSE event objects
+  app.post('/event', (req: any, res: any) => {
+    const body = req?.body || {};
+    let eventObj: any;
+    const eventName = typeof body?.event === 'string' ? body.event : undefined;
+    if (body && typeof body === 'object' && body.jsonrpc === '2.0' && typeof body.method === 'string') {
+      eventObj = body;
+    } else if (body && typeof body?.method === 'string') {
+      eventObj = { jsonrpc: '2.0', method: String(body.method), params: body.params ?? {} };
+    } else {
+      res.status(400).json({ ok: false, error: 'Provide { method, params? } or full JSON-RPC object' });
+      return;
+    }
+    if (eventName) sendNamedEvent(eventName, eventObj);
+    else sendEvent(eventObj);
+    res.json({ ok: true });
+  });
+
+  // Convenience endpoint to notify clients that resources changed
+  app.post('/notify/resources-changed', (_req: any, res: any) => {
+    sendEvent({ jsonrpc: '2.0', method: 'notifications/resources/list_changed', params: {} });
+    res.json({ ok: true });
   });
 
   async function handleIncoming(req: any, res: any) {
@@ -246,8 +272,6 @@ export async function start() {
       return;
     }
     const response = await handleRequest(msg);
-    // Push via SSE stream
-    sendEvent(response);
     // Include session id header for streamable HTTP
     res.setHeader('mcp-session-id', SESSION_ID);
     // Also return immediate JSON response for convenience
@@ -270,7 +294,6 @@ export default start;
 
 // If this module is executed directly (not imported), start the server.
 // Works in both Bun and Node ESM environments.
-import { fileURLToPath } from 'url';
 const isDirectRun = (() => {
   try {
     return !!(process?.argv?.[1] && fileURLToPath(import.meta.url) === process.argv[1]);

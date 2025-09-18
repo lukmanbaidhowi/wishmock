@@ -12,26 +12,10 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { z } from 'zod';
 import { promises as fs } from 'fs';
 import { resolve } from 'path';
+import { ensureDir, listFiles, resolveBasePaths, httpGetJson as httpGet } from './utils.js';
+import { fileURLToPath } from 'url';
 
-const CWD = process.cwd();
-const RULES_DIR = resolve(CWD, 'rules');
-const PROTOS_DIR = resolve(CWD, 'protos');
-
-async function ensureDir(path: string) { try { await fs.mkdir(path, { recursive: true }); } catch {} }
-async function listFiles(dir: string, exts: string[]) {
-  try {
-    const items = await fs.readdir(dir, { withFileTypes: true });
-    return items.filter(i => i.isFile()).map(i => i.name).filter(n => exts.some(e => n.toLowerCase().endsWith(e)));
-  } catch { return []; }
-}
-
-function textContent(text: string) { return [{ type: 'text', text }]; }
-
-async function httpGet(url: string) {
-  const res = await fetch(url);
-  const text = await res.text();
-  try { return JSON.parse(text); } catch { return text; }
-}
+const { RULES_DIR, PROTOS_DIR } = resolveBasePaths(import.meta.url);
 
 export async function start() {
   await ensureDir(RULES_DIR);
@@ -156,7 +140,6 @@ export default start;
 
 // If this module is executed directly (not imported), start the server.
 // Works in both Bun and Node ESM environments.
-import { fileURLToPath } from 'url';
 const isDirectRun = (() => {
   try {
     return !!(process?.argv?.[1] && fileURLToPath(import.meta.url) === process.argv[1]);

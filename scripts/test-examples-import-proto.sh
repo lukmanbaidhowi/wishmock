@@ -162,6 +162,15 @@ run_call "RelService DoRel (import proto)" \
 run_call "AbsService DoAbs (import proto)" \
   grpcurl "${PROTO_FLAGS[@]}" -proto abs_service.proto -plaintext -d '{"msg":{"note":"hi"}}' "localhost:${GRPC_PORT}" abs.AbsService/DoAbs
 
+# Streaming RPC samples with explicit protos
+run_call "UploadHello client stream (import proto)" \
+  sh -c "printf '%s\\n%s\\n' '{\"name\":\"Alice\"}' '{\"name\":\"Bob\"}' | \\
+    grpcurl -import-path protos -proto helloworld.proto -plaintext -d @ \"localhost:${GRPC_PORT}\" helloworld.Greeter/UploadHello"
+
+run_call "ChatHello bidi stream (import proto)" \
+  sh -c "printf '%s\\n%s\\n' '{\"name\":\"Alice\"}' '{\"name\":\"Bob\"}' | \\
+    grpcurl -import-path protos -proto helloworld.proto -plaintext -d @ \"localhost:${GRPC_PORT}\" helloworld.Greeter/ChatHello"
+
 # Optional TLS tests
 if [[ "$TLS_TESTS" == "true" ]]; then
   sleep 0.5

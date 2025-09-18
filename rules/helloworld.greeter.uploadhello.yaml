@@ -1,0 +1,8 @@
+responses:
+  - when:
+      "request.count":
+        gt: 1
+    body:
+      message: "Uploaded {{request.count}} names. First={{request.first.name}} Last={{request.last.name}}"
+  - body:
+      message: "Uploaded {{request.count}} name. First={{request.first.name}}"

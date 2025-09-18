@@ -3,6 +3,8 @@ package helloworld;
 
 service Greeter {
   rpc SayHello (HelloRequest) returns (HelloReply);
+  rpc UploadHello (stream HelloRequest) returns (HelloReply);
+  rpc ChatHello (stream HelloRequest) returns (stream HelloReply);
 }
 
 message HelloRequest {

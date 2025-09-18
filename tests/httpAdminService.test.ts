@@ -68,7 +68,9 @@ describe("Admin Service Routes - Functional Approach", () => {
             full_method: "helloworld.Greeter/SayHello",
             rule_key: "helloworld.greeter.sayhello",
             request_type: "HelloRequest",
-            response_type: "HelloReply"
+            response_type: "HelloReply",
+            request_stream: false,
+            response_stream: false,
           }]
         }]
       };

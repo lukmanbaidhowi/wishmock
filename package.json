@@ -55,8 +55,8 @@
     "start:mcp:http:ts": "bun --watch src/mcp/server.sse.ts",
     "prestart:both:mcp": "bun run build",
     "start:both:mcp": "bun scripts/dev.mcp.mjs",
-    "test:readme-examples": "bash scripts/test-readme-examples.sh",
-    "test:readme-examples:import-proto": "bash scripts/test-readme-examples-import-proto.sh",
+    "test:examples": "bash scripts/test-examples.sh",
+    "test:examples:import-proto": "bash scripts/test-examples-import-proto.sh",
     "prepublishOnly": "tsc -p tsconfig.json"
   }
 }

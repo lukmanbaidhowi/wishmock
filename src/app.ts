@@ -192,6 +192,8 @@ function reloadRules() {
           rule_key: meta.ruleKey,
           request_type: meta.reqType.fullName?.replace(/^\./, "") || meta.reqType.name,
           response_type: meta.resType.fullName?.replace(/^\./, "") || meta.resType.name,
+          request_stream: meta.requestStream,
+          response_stream: meta.responseStream,
         });
       }
       return { services: [...byService.entries()].map(([name, v]) => ({ name, package: v.pkg, service: v.service, methods: v.methods })) };

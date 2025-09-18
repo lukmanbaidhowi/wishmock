@@ -14,11 +14,161 @@ export interface HandlerMeta {
   pkg: string;
   serviceName: string;
   methodName: string;
-  handler: grpc.handleUnaryCall<any, any> | grpc.handleServerStreamingCall<any, any>;
+  handler:
+    | grpc.handleUnaryCall<any, any>
+    | grpc.handleServerStreamingCall<any, any>
+    | grpc.handleClientStreamingCall<any, any>
+    | grpc.handleBidiStreamingCall<any, any>;
   reqType: protobuf.Type;
   resType: protobuf.Type;
   ruleKey: string;
-  isServerStreaming?: boolean;
+  requestStream: boolean;
+  responseStream: boolean;
+}
+
+function metadataToRecord(metadata: grpc.Metadata | undefined): Record<string, unknown> {
+  const record: Record<string, unknown> = {};
+  if (!metadata) return record;
+  try {
+    const getMap = (metadata as unknown as { getMap?: () => Record<string, unknown> }).getMap;
+    if (typeof getMap === "function") {
+      Object.assign(record, getMap.call(metadata));
+    }
+  } catch {
+    // ignore metadata conversion errors
+  }
+  return record;
+}
+
+function buildStreamRequest(messages: unknown[]): Record<string, unknown> {
+  const items = [...messages];
+  const first = items[0];
+  const last = items[items.length - 1];
+  return {
+    stream: items,
+    items,
+    first,
+    last,
+    count: items.length,
+  };
+}
+
+function extractTrailers(trailers: Record<string, string | number | boolean> | undefined) {
+  const map = trailers ?? {};
+  const trailing = new grpc.Metadata();
+  for (const [k, v] of Object.entries(map)) {
+    if (k === "grpc-status" || k === "grpc-message") continue;
+    trailing.set(k, String(v));
+  }
+  const statusRaw = map["grpc-status"];
+  const status = typeof statusRaw === "number" ? statusRaw : Number(statusRaw ?? 0);
+  const msg = String((map as any)["grpc-message"] ?? "");
+  return { status, msg, trailing };
+}
+
+function respondUnary(
+  rule: RuleDoc | undefined,
+  reqObj: unknown,
+  metadata: Record<string, unknown>,
+  resType: protobuf.Type,
+  callback: grpc.sendUnaryData<any>,
+  errLogger: (...a: any[]) => void,
+  call?: grpc.ServerUnaryCall<any, any>
+) {
+  try {
+    const selected = selectResponse(rule, reqObj, metadata);
+    const body = (selected?.body ?? {}) as any;
+    const message = resType.fromObject(body);
+    const buffer = resType.encode(message).finish();
+    const decoded = resType.decode(buffer);
+
+    const { status, msg, trailing } = extractTrailers(selected?.trailers as Record<string, string | number | boolean> | undefined);
+
+    const respond = () => {
+      if (status && status !== 0) {
+        const errObj: any = { code: status, message: msg || "mock error" };
+        try {
+          const hasMapFn = typeof (trailing as any).getMap === "function";
+          const mapObj = hasMapFn ? (trailing as any).getMap() : {};
+          if (mapObj && Object.keys(mapObj).length) errObj.metadata = trailing;
+        } catch {
+          // ignore metadata attach failures
+        }
+        callback(errObj);
+      } else {
+        try {
+          const hasMapFn = typeof (trailing as any).getMap === "function";
+          const mapObj = hasMapFn ? (trailing as any).getMap() : {};
+          if (mapObj && Object.keys(mapObj).length) (call as any)?.setTrailer?.(trailing);
+        } catch {
+          // ignore metadata attach failures
+        }
+        callback(null, decoded);
+      }
+    };
+
+    if (selected?.delay_ms) setTimeout(respond, selected.delay_ms);
+    else respond();
+  } catch (e: any) {
+    errLogger("handler error", e);
+    callback({ code: grpc.status.INTERNAL, message: e?.message || "mock handler error" } as any);
+  }
+}
+
+function handleStreamingResponses(
+  call: grpc.ServerWritableStream<any, any> | grpc.ServerDuplexStream<any, any>,
+  rule: RuleDoc | undefined,
+  reqObj: unknown,
+  metadata: Record<string, unknown>,
+  resType: protobuf.Type,
+  errLogger: (...a: any[]) => void
+) {
+  try {
+    const selected = selectResponse(rule, reqObj, metadata);
+    const baseItems = selected?.stream_items || [selected?.body || {}];
+    const streamDelay = selected?.stream_delay_ms || 100;
+    const { status, msg } = extractTrailers(selected?.trailers as Record<string, string | number | boolean> | undefined);
+
+    if (status && status !== 0) {
+      call.emit("error", { code: status, message: msg || "mock error" });
+      return;
+    }
+
+    const shouldLoop = selected?.stream_loop || false;
+    const randomOrder = selected?.stream_random_order || false;
+
+    const sendItems = async () => {
+      do {
+        const items = randomOrder ? [...baseItems].sort(() => Math.random() - 0.5) : baseItems;
+
+        for (let i = 0; i < items.length; i++) {
+          if ((call as any).destroyed || (call as any).cancelled) return;
+
+          const templated = selectResponse(rule, reqObj, metadata, i, items.length);
+          const templatedItems = templated?.stream_items ?? items;
+          const item = templatedItems[i] ?? templated?.body ?? items[i];
+
+          const message = resType.fromObject(item as any);
+          const buffer = resType.encode(message).finish();
+          const decoded = resType.decode(buffer);
+
+          call.write(decoded);
+
+          if (i < items.length - 1 || shouldLoop) {
+            await new Promise((resolve) => setTimeout(resolve, streamDelay));
+          }
+        }
+      } while (shouldLoop && !(call as any).destroyed && !(call as any).cancelled);
+
+      if (!(call as any).destroyed) call.end();
+    };
+
+    if (selected?.delay_ms) setTimeout(sendItems, selected.delay_ms);
+    else sendItems();
+  } catch (e: any) {
+    errLogger("streaming handler error", e);
+    call.emit("error", { code: grpc.status.INTERNAL, message: e?.message || "mock streaming handler error" });
+  }
 }
 
 export function buildHandlersFromRoot(rootNamespace: protobuf.Root, rulesIndex: RulesIndex, log: (...a: any[]) => void, err: (...a: any[]) => void): Map<string, HandlerMeta> {
@@ -43,143 +193,69 @@ export function buildHandlersFromRoot(rootNamespace: protobuf.Root, rulesIndex: 
       const serviceName = ns.name || "Service";
       const fqService = packagePath ? `${packagePath}.${serviceName}` : serviceName;
       for (const [methodName, m] of Object.entries(ns.methods)) {
-        if (m.requestStream) {
-          log(`(info) Skipping client/bidirectional streaming method ${fqService}/${methodName}`);
-          continue;
-        }
         const fqmn = `${fqService}/${methodName}`;
         const ruleKey = `${fqService}.${methodName}`.toLowerCase();
         const reqFqn = normalizeTypeName(m.requestType, packagePath);
         const resFqn = normalizeTypeName(m.responseType, packagePath);
         const reqType = rootNamespace.lookupType(reqFqn);
         const resType = rootNamespace.lookupType(resFqn);
-        const isServerStreaming = !!m.responseStream;
+        const requestStream = !!m.requestStream;
+        const responseStream = !!m.responseStream;
 
-        const handler: grpc.handleUnaryCall<any, any> | grpc.handleServerStreamingCall<any, any> = isServerStreaming
-          ? async (call: grpc.ServerWritableStream<any, any>) => {
-              try {
-                const reqObj = call.request as unknown;
-                const md: Record<string, unknown> = {};
-                (call.metadata as any).getMap && Object.assign(md, (call.metadata as any).getMap());
+        let handler: HandlerMeta["handler"];
 
-                const rule = rulesIndex.get(ruleKey);
-                const selected = selectResponse(rule, reqObj, md);
-                
-                const streamItems = selected?.stream_items || [selected?.body || {}];
-                const streamDelay = selected?.stream_delay_ms || 100;
-                const trailers = (selected?.trailers ?? {}) as Record<string, string | number | boolean>;
-                const statusRaw = trailers["grpc-status"];
-                const status = typeof statusRaw === "number" ? statusRaw : Number(statusRaw ?? 0);
-                const msg = String((trailers as any)["grpc-message"] ?? "");
-
-                if (status && status !== 0) {
-                  call.emit('error', { code: status, message: msg || "mock error" });
-                  return;
-                }
-
-                const sendItems = async () => {
-                  const shouldLoop = selected?.stream_loop || false;
-                  const randomOrder = selected?.stream_random_order || false;
-                  
-                  do {
-                    const items = randomOrder ? [...streamItems].sort(() => Math.random() - 0.5) : streamItems;
-                    
-                    for (let i = 0; i < items.length; i++) {
-                      if (call.destroyed || call.cancelled) return;
-                      
-                      // Apply templating for each stream item with its index
-                      const templatedSelected = selectResponse(rule, reqObj, md, i, items.length);
-                      const item = templatedSelected?.stream_items?.[i] || templatedSelected?.body || items[i];
-                      
-                      const message = resType.fromObject(item as any);
-                      const buffer = resType.encode(message).finish();
-                      const decoded = resType.decode(buffer);
-                      
-                      call.write(decoded);
-                      
-                      if (i < items.length - 1 || shouldLoop) {
-                        await new Promise(resolve => setTimeout(resolve, streamDelay));
-                      }
-                    }
-                  } while (shouldLoop && !call.destroyed && !call.cancelled);
-                  
-                  if (!call.destroyed) call.end();
-                };
-
-                if (selected?.delay_ms) {
-                  setTimeout(sendItems, selected.delay_ms);
-                } else {
-                  sendItems();
-                }
-              } catch (e: any) {
-                err("streaming handler error", e);
-                call.emit('error', { code: grpc.status.INTERNAL, message: e?.message || "mock streaming handler error" });
-              }
-            }
-          : async (call, callback) => {
-          try {
+        if (!requestStream && !responseStream) {
+          handler = (call: grpc.ServerUnaryCall<any, any>, callback: grpc.sendUnaryData<any>) => {
             const reqObj = call.request as unknown;
-            const md: Record<string, unknown> = {};
-            (call.metadata as any).getMap && Object.assign(md, (call.metadata as any).getMap());
-
+            const md = metadataToRecord(call.metadata);
             const rule = rulesIndex.get(ruleKey);
-            const selected = selectResponse(rule, reqObj, md);
-            const body = (selected?.body ?? {}) as any;
-            const message = resType.fromObject(body);
-            const buffer = resType.encode(message).finish();
-            const decoded = resType.decode(buffer);
-
-            // Map rule trailers to gRPC behavior
-            const trailers = (selected?.trailers ?? {}) as Record<string, string | number | boolean>;
-            const statusRaw = trailers["grpc-status"];
-            const status = typeof statusRaw === "number" ? statusRaw : Number(statusRaw ?? 0);
-            const msg = String((trailers as any)["grpc-message"] ?? "");
-
-            // Build trailing metadata from any non-status keys
-            const trailing = new grpc.Metadata();
-            for (const [k, v] of Object.entries(trailers)) {
-              if (k === "grpc-status" || k === "grpc-message") continue;
-              trailing.set(k, String(v));
-            }
-
-            const respond = () => {
-              if (status && status !== 0) {
-                const errObj: any = { code: status, message: msg || "mock error" };
-                try {
-                  const hasMapFn = typeof (trailing as any).getMap === "function";
-                  const mapObj = hasMapFn ? (trailing as any).getMap() : {};
-                  if (mapObj && Object.keys(mapObj).length) {
-                    errObj.metadata = trailing;
-                  }
-                } catch (_) {
-                  // ignore metadata attach failures
-                }
-                callback(errObj);
-              } else {
-                // Attach trailing metadata if provided
-                try {
-                  const hasMapFn = typeof (trailing as any).getMap === "function";
-                  const mapObj = hasMapFn ? (trailing as any).getMap() : {};
-                  if (mapObj && Object.keys(mapObj).length) {
-                    (call as any).setTrailer?.(trailing);
-                  }
-                } catch (_) {
-                  // ignore metadata attach failures
-                }
-                callback(null, decoded);
-              }
-            };
-
-            if (selected?.delay_ms) setTimeout(respond, selected.delay_ms);
-            else respond();
-          } catch (e: any) {
-            err("handler error", e);
-            callback({ code: grpc.status.INTERNAL, message: e?.message || "mock handler error" } as any);
-          }
-        };
+            respondUnary(rule, reqObj, md, resType, callback, err, call);
+          };
+        } else if (!requestStream && responseStream) {
+          handler = (call: grpc.ServerWritableStream<any, any>) => {
+            const reqObj = call.request as unknown;
+            const md = metadataToRecord(call.metadata);
+            const rule = rulesIndex.get(ruleKey);
+            handleStreamingResponses(call, rule, reqObj, md, resType, err);
+          };
+        } else if (requestStream && !responseStream) {
+          handler = (call: grpc.ServerReadableStream<any, any>, callback: grpc.sendUnaryData<any>) => {
+            const md = metadataToRecord(call.metadata);
+            const messages: unknown[] = [];
+            call.on("data", (chunk) => {
+              messages.push(chunk);
+            });
+            call.on("error", (e) => {
+              if ((e as any)?.code !== grpc.status.CANCELLED) err("client streaming error", e);
+            });
+            call.on("end", () => {
+              if ((call as any).cancelled) return;
+              const reqObj = buildStreamRequest(messages);
+              const rule = rulesIndex.get(ruleKey);
+              respondUnary(rule, reqObj, md, resType, callback, err);
+            });
+          };
+        } else {
+          handler = (call: grpc.ServerDuplexStream<any, any>) => {
+            const md = metadataToRecord(call.metadata);
+            const messages: unknown[] = [];
+            call.on("data", (chunk) => {
+              messages.push(chunk);
+            });
+            call.on("error", (e) => {
+              if ((e as any)?.code !== grpc.status.CANCELLED) err("bidi streaming error", e);
+            });
+            call.on("end", () => {
+              if ((call as any).cancelled) return;
+              const reqObj = buildStreamRequest(messages);
+              const rule = rulesIndex.get(ruleKey);
+              handleStreamingResponses(call, rule, reqObj, md, resType, err);
+            });
+          };
+        }
 
         const pkg = packagePath;
-        servicesMap.set(fqmn, { pkg, serviceName, methodName, handler, reqType, resType, ruleKey, isServerStreaming });
+        servicesMap.set(fqmn, { pkg, serviceName, methodName, handler, reqType, resType, ruleKey, requestStream, responseStream });
       }
     }
     if (ns.nested) {
@@ -333,7 +409,7 @@ export async function createGrpcServer(rootNamespace: protobuf.Root, rulesIndex:
   }
 
   // Group by service and build implementation maps
-  const byService = new Map<string, { impl: Record<string, grpc.handleUnaryCall<any, any> | grpc.handleServerStreamingCall<any, any>> }>();
+  const byService = new Map<string, { impl: Record<string, HandlerMeta["handler"]> }>();
   for (const [, meta] of servicesMap) {
     const fullServiceName = meta.pkg ? `${meta.pkg}.${meta.serviceName}` : meta.serviceName;
     if (!byService.has(fullServiceName)) byService.set(fullServiceName, { impl: {} });
@@ -355,8 +431,8 @@ export async function createGrpcServer(rootNamespace: protobuf.Root, rulesIndex:
         if (svcName !== fullServiceName) continue;
         def[lowerFirst(meta.methodName)] = {
           path: `/${svcName}/${meta.methodName}`,
-          requestStream: false,
-          responseStream: !!meta.isServerStreaming,
+          requestStream: !!meta.requestStream,
+          responseStream: !!meta.responseStream,
           originalName: meta.methodName,
           requestSerialize: (arg: any) => meta.reqType.encode(meta.reqType.fromObject(arg)).finish(),
           requestDeserialize: (buffer: Buffer) => meta.reqType.decode(buffer),

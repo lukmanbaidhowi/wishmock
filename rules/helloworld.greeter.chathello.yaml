@@ -1,0 +1,6 @@
+responses:
+  - stream_items:
+      - message: "Hello {{request.first.name}}"
+      - message: "Names received: {{request.count}}"
+      - message: "Last seen: {{request.last.name}}"
+    stream_delay_ms: 50

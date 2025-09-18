@@ -159,6 +159,15 @@ run_call "RelService DoRel (reflection)" \
 run_call "AbsService DoAbs (reflection)" \
   grpcurl -plaintext -d '{"msg":{"note":"hi"}}' "localhost:${GRPC_PORT}" abs.AbsService/DoAbs
 
+# Streaming RPC samples
+run_call "UploadHello client stream" \
+  sh -c "printf '%s\\n%s\\n' '{\"name\":\"Alice\"}' '{\"name\":\"Bob\"}' | \\
+    grpcurl -plaintext -d @ \"localhost:${GRPC_PORT}\" helloworld.Greeter/UploadHello"
+
+run_call "ChatHello bidi stream" \
+  sh -c "printf '%s\\n%s\\n' '{\"name\":\"Alice\"}' '{\"name\":\"Bob\"}' | \\
+    grpcurl -plaintext -d @ \"localhost:${GRPC_PORT}\" helloworld.Greeter/ChatHello"
+
 # Optional TLS tests
 if [[ "$TLS_TESTS" == "true" ]]; then
   sleep 0.5

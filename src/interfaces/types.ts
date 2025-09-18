@@ -25,6 +25,8 @@ export interface ServiceMethod {
   rule_key: string;
   request_type: string;
   response_type: string;
+  request_stream: boolean;
+  response_stream: boolean;
 }
 
 export interface Service {
@@ -37,4 +39,3 @@ export interface Service {
 export interface ServicesResponse {
   services: Service[];
 }
-

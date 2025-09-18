@@ -246,8 +246,8 @@ The server exposes gRPC Server Reflection on both plaintext and TLS ports for to
     `grpcurl -import-path protos -proto helloworld.proto -plaintext ...`
 
 Run the example tests:
-- With reflection (default): `bun run test:readme-examples`
-- With explicit `-proto` imports: `bun run test:readme-examples:import-proto`
+- With reflection (default): `bun run test:examples`
+- With explicit `-proto` imports: `bun run test:examples:import-proto`
 
 ## TLS / mTLS
 

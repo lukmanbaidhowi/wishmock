@@ -12,6 +12,7 @@ RUN bun install
 COPY tsconfig.json ./
 COPY src ./src
 COPY frontend ./frontend
+COPY types ./types
 
 # Build server and frontend
 RUN bun run build

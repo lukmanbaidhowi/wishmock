@@ -14,6 +14,17 @@ import { fileURLToPath } from 'url';
 type Json = any;
 import { ensureDir, listFiles, resolveBasePaths, safeJson, httpGetJson } from './utils.js';
 const { RULES_DIR, PROTOS_DIR } = resolveBasePaths(import.meta.url);
+// Keep MCP defaults aligned with configurable Admin HTTP port.
+function stripTrailingSlashes(value: string): string {
+  let trimmed = value;
+  while (trimmed.endsWith('/')) {
+    trimmed = trimmed.slice(0, -1);
+  }
+  return trimmed;
+}
+
+const ADMIN_BASE_URL = stripTrailingSlashes(process.env.ADMIN_BASE_URL || `http://localhost:${process.env.HTTP_PORT || '3000'}`);
+const schemaBase = (url?: string) => stripTrailingSlashes(url || ADMIN_BASE_URL);
 
 const MCP_HTTP_PORT = parseInt(process.env.MCP_HTTP_PORT || '9090', 10);
 const MCP_HTTP_HOST = process.env.MCP_HTTP_HOST || '0.0.0.0';
@@ -74,7 +85,7 @@ async function tool_writeProto(args: { filename: string; content: string }) {
 }
 // httpGetJson imported from utils
 async function tool_getStatus(args?: { url?: string }) {
-  const url = args?.url || 'http://localhost:3000/admin/status';
+  const url = args?.url || `${ADMIN_BASE_URL}/admin/status`;
   try {
     const payload = await httpGetJson(url);
     return { source: 'admin', status: payload };
@@ -86,26 +97,26 @@ async function tool_getStatus(args?: { url?: string }) {
 }
 async function tool_uploadProto(args: { filename: string; content: string; url?: string }) {
   if (!args?.filename || typeof args.content !== 'string') throw new Error('filename and content required');
-  const url = args.url || 'http://localhost:3000/admin/upload/proto';
+  const url = args.url || `${ADMIN_BASE_URL}/admin/upload/proto`;
   const res = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ filename: args.filename, content: args.content }) });
   const text = await res.text();
   return { ok: res.ok, status: res.status, body: safeJson(text) };
 }
 async function tool_uploadRule(args: { filename: string; content: string; url?: string }) {
   if (!args?.filename || typeof args.content !== 'string') throw new Error('filename and content required');
-  const url = args.url || 'http://localhost:3000/admin/upload/rule';
+  const url = args.url || `${ADMIN_BASE_URL}/admin/upload/rule/grpc`;
   const res = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ filename: args.filename, content: args.content }) });
   const text = await res.text();
   return { ok: res.ok, status: res.status, body: safeJson(text) };
 }
 async function tool_listServices(args?: { url?: string }) {
-  const url = args?.url || 'http://localhost:3000/admin/services';
+  const url = args?.url || `${ADMIN_BASE_URL}/admin/services`;
   return await httpGetJson(url);
 }
 async function tool_describeSchema(args: { type: string; url?: string }) {
   if (!args?.type) throw new Error('type is required');
-  const url = (args.url || 'http://localhost:3000') + `/admin/schema/${encodeURIComponent(args.type)}`;
-  return await httpGetJson(url);
+  const base = schemaBase(args.url);
+  return await httpGetJson(`${base}/admin/schema/${encodeURIComponent(args.type)}`);
 }
 
 async function listResources() {
@@ -145,7 +156,7 @@ async function handleRequest(msg: JsonRpcRequest): Promise<JsonRpcResponse> {
         return ok(id, { ok: true });
       case 'tools/list':
         return ok(id, { tools: [
-          { name: 'listRules', description: 'List rule files under rules/.', inputSchema: { type: 'object', properties: {}, additionalProperties: false } },
+          { name: 'listRules', description: 'List gRPC rule files under rules/grpc.', inputSchema: { type: 'object', properties: {}, additionalProperties: false } },
           { name: 'readRule', description: 'Read a rule file content.', inputSchema: { type: 'object', properties: { filename: { type: 'string' } }, required: ['filename'], additionalProperties: false } },
           { name: 'writeRule', description: 'Write content to a rule file (YAML/JSON).', inputSchema: { type: 'object', properties: { filename: { type: 'string' }, content: { type: 'string' } }, required: ['filename', 'content'], additionalProperties: false } },
           { name: 'listProtos', description: 'List proto files under protos/.', inputSchema: { type: 'object', properties: {}, additionalProperties: false } },
@@ -153,7 +164,7 @@ async function handleRequest(msg: JsonRpcRequest): Promise<JsonRpcResponse> {
           { name: 'writeProto', description: 'Write content to a proto file.', inputSchema: { type: 'object', properties: { filename: { type: 'string' }, content: { type: 'string' } }, required: ['filename', 'content'], additionalProperties: false } },
           { name: 'getStatus', description: 'Fetch admin status (HTTP) or filesystem fallback.', inputSchema: { type: 'object', properties: { url: { type: 'string' } }, additionalProperties: false } },
           { name: 'uploadProto', description: 'Upload a proto via Admin API (POST /admin/upload/proto).', inputSchema: { type: 'object', properties: { filename: { type: 'string' }, content: { type: 'string' }, url: { type: 'string' } }, required: ['filename', 'content'], additionalProperties: false } },
-          { name: 'uploadRule', description: 'Upload a rule via Admin API (POST /admin/upload/rule).', inputSchema: { type: 'object', properties: { filename: { type: 'string' }, content: { type: 'string' }, url: { type: 'string' } }, required: ['filename', 'content'], additionalProperties: false } },
+          { name: 'uploadRule', description: 'Upload a gRPC rule via Admin API (POST /admin/upload/rule/grpc).', inputSchema: { type: 'object', properties: { filename: { type: 'string' }, content: { type: 'string' }, url: { type: 'string' } }, required: ['filename', 'content'], additionalProperties: false } },
           { name: 'listServices', description: 'List active services and methods via Admin API (GET /admin/services).', inputSchema: { type: 'object', properties: { url: { type: 'string' } }, additionalProperties: false } },
           { name: 'describeSchema', description: 'Describe a message/enum schema via Admin API (GET /admin/schema/:type).', inputSchema: { type: 'object', properties: { type: { type: 'string' }, url: { type: 'string' } }, required: ['type'], additionalProperties: false } },
         ]});

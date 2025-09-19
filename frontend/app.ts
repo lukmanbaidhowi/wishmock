@@ -227,7 +227,7 @@ function bindUploads() {
     const file = (document.getElementById("ruleFile") as HTMLInputElement).files?.[0];
     if (!file) return showSnackbar("Choose a rule file first", 'warn');
     try {
-      await uploadFile("/admin/upload/rule", file);
+      await uploadFile("/admin/upload/rule/grpc", file);
       showSnackbar("Rule uploaded. Refreshing...", 'success');
       await refreshAfterUpload('rule');
     } catch (err: any) {

@@ -35,7 +35,7 @@ class MockDuplexStream extends EventEmitter {
 
 describe("gRPC streaming handlers", () => {
   const protoPath = path.join(process.cwd(), "protos", "helloworld.proto");
-  const rulesDir = path.join(process.cwd(), "rules");
+  const rulesDir = path.join(process.cwd(), "rules", "grpc");
 
   let uploadHandler: grpc.handleClientStreamingCall<any, any>;
   let chatHandler: grpc.handleBidiStreamingCall<any, any>;

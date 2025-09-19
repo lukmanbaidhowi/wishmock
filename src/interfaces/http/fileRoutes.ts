@@ -136,8 +136,8 @@ export function setupFileRoutes(app: any, protoDir: string, ruleDir: string, onR
   app.post("/admin/upload/proto", handlers.uploadProto);
   app.post("/admin/upload/proto/path", handlers.uploadProtoAtPath);
   
-  app.get("/admin/rules", handlers.listRules);
-  app.get("/admin/rule/:filename", handlers.getRule);
-  app.put("/admin/rule/:filename", handlers.updateRule);
-  app.post("/admin/upload/rule", handlers.uploadRule);
+  app.get("/admin/rules/grpc", handlers.listRules);
+  app.get("/admin/rule/grpc/:filename", handlers.getRule);
+  app.put("/admin/rule/grpc/:filename", handlers.updateRule);
+  app.post("/admin/upload/rule/grpc", handlers.uploadRule);
 }

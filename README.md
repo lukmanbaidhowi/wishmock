@@ -17,8 +17,9 @@ The project ships with MCP servers, a multi-stage Docker build (now including Ty
 wishmock/
 ├─ protos/                 # put your proto files here
 │  └─ helloworld.proto
-├─ rules/                  # put your rule files here
-│  └─ helloworld.greeter.sayhello.yaml
+├─ rules/                  # rule roots (gRPC rules live in rules/grpc/)
+│  └─ grpc/                # gRPC YAML/JSON rule files
+│     └─ helloworld.greeter.sayhello.yaml
 ├─ src/
 │  ├─ app.ts               # app bootstrap (watchers + admin HTTP)
 │  ├─ domain/
@@ -134,7 +135,7 @@ grpcurl -import-path protos -proto helloworld.proto -plaintext -d '{"name":"Tom"
 
 ## Hot Reload
 - Change/add `.proto` in `protos/` → server auto rebuilds and restarts
-- Change/add rules in `rules/` → rules reload immediately (no restart)
+- Change/add rules in `rules/grpc/` → rules reload immediately (no restart)
 - Upload proto/rules via Admin API
 
 ### Admin UI (Web)
@@ -187,7 +188,7 @@ grpcurl -import-path protos -proto helloworld.proto -d '{"name":"Tom"}' \
 ```
 
 ### Error Simulation Examples
-- The file `rules/calendar.events.getevent.yaml:1` includes realistic error cases keyed by `request.id` values. Examples:
+- The file `rules/grpc/calendar.events.getevent.yaml:1` includes realistic error cases keyed by `request.id` values. Examples:
   - UNAUTHENTICATED: `request.id = "err-unauth"`
   - PERMISSION_DENIED: `request.id = "err-forbidden"`
   - NOT_FOUND: `request.id = "err-notfound"`
@@ -367,9 +368,9 @@ grpcurl -import-path protos -proto helloworld.proto -plaintext \
 
 ### In Rules
 - File naming: `package.service.method.yaml` (lowercase, `/` → `.`), e.g., `demo.matcher.eval.yaml`.
-- Example with operators: `rules/demo.matcher.eval.yaml:1`.
-- Header matching example added to hello world rule: `rules/helloworld.greeter.sayhello.yaml:1`.
- - Third-party import example rule for `calendar.Events/GetEvent`: `rules/calendar.events.getevent.yaml:1`.
+- Example with operators: `rules/grpc/demo.matcher.eval.yaml:1`.
+- Header matching example added to hello world rule: `rules/grpc/helloworld.greeter.sayhello.yaml:1`.
+- Third-party import example rule for `calendar.Events/GetEvent`: `rules/grpc/calendar.events.getevent.yaml:1`.
 
 ### Third-Party Protos
 - Common Google/Validate/OpenTelemetry protos can be placed under `protos/google/...`, `protos/validate/...`, etc. If they are not present, fetch with your project’s script (see `AGENTS.md`).
@@ -591,7 +592,7 @@ grpcurl -import-path protos -proto streaming.proto -plaintext -d '{"user_id":"te
 - **Nested Support**: Templates work in nested objects and arrays
 
 ## MCP Server (Model Context Protocol)
-- MCP stdio server lets MCP clients read/write `rules/`, `protos/`, and query status via Admin API.
+- MCP stdio server lets MCP clients read/write `rules/grpc/`, `protos/`, and query status via Admin API.
 - Run locally:
   - Build: `bun run build`
   - Start: `bun run start:mcp`
@@ -607,11 +608,11 @@ grpcurl -import-path protos -proto streaming.proto -plaintext -d '{"user_id":"te
   - `uploadProto`, `uploadRule` (Admin API POST)
   - `listServices`, `describeSchema` (Admin API GET)
 - Resources:
-  - `wishmock://rules/<filename>` (YAML/JSON)
+  - `wishmock://rules/<filename>` (YAML/JSON under rules/grpc)
   - `wishmock://protos/<filename>` (text/x-proto)
 - Notes:
   - Uses `@modelcontextprotocol/sdk` (stdio). For SSE-based clients, use the HTTP SSE server and point them to `/sse`.
-  - Path resolution: the MCP server locates `rules/` and `protos/` via env overrides (`WISHMOCK_BASE_DIR`, `WISHMOCK_RULES_DIR`, `WISHMOCK_PROTOS_DIR`) or automatically relative to the server module path.
+- Path resolution: the MCP server locates `rules/grpc/` and `protos/` via env overrides (`WISHMOCK_BASE_DIR`, `WISHMOCK_RULES_DIR`, `WISHMOCK_PROTOS_DIR`) or automatically relative to the server module path.
 
 ### MCP Client Config Examples
 

@@ -51,7 +51,7 @@ describe("fileRoutes - update & upload handlers", () => {
   describe("Success - updateRule", () => {
     it("updates existing rule, triggers reload, returns saved path", () => {
       setupFileRoutes(mockApp, "/proto/dir", "/rule/dir", onRuleUpdated);
-      const handler = mockApp.put.mock.calls.find((c: any) => c[0] === "/admin/rule/:filename")[1];
+      const handler = mockApp.put.mock.calls.find((c: any) => c[0] === "/admin/rule/grpc/:filename")[1];
 
       const savedPath = "/rule/dir/greeter.sayhello.yaml";
       const spy = vi.spyOn(FileService, "writeFile").mockReturnValue(savedPath);
@@ -91,7 +91,7 @@ describe("fileRoutes - update & upload handlers", () => {
   describe("Success - uploadRule", () => {
     it("uploads rule, triggers reload, returns saved path", () => {
       setupFileRoutes(mockApp, "/proto/dir", "/rule/dir", onRuleUpdated);
-      const handler = mockApp.post.mock.calls.find((c: any) => c[0] === "/admin/upload/rule")[1];
+      const handler = mockApp.post.mock.calls.find((c: any) => c[0] === "/admin/upload/rule/grpc")[1];
 
       const savedPath = "/rule/dir/helloworld.greeter.sayhello.yaml";
       const spy = vi.spyOn(FileService, "writeFile").mockReturnValue(savedPath);
@@ -138,7 +138,7 @@ describe("fileRoutes - update & upload handlers", () => {
 
     it("rejects updateRule with empty filename", () => {
       setupFileRoutes(mockApp, "/proto/dir", "/rule/dir", onRuleUpdated);
-      const handler = mockApp.put.mock.calls.find((c: any) => c[0] === "/admin/rule/:filename")[1];
+      const handler = mockApp.put.mock.calls.find((c: any) => c[0] === "/admin/rule/grpc/:filename")[1];
 
       mockReq.params.filename = "";
       mockReq.body.content = "x";
@@ -152,7 +152,7 @@ describe("fileRoutes - update & upload handlers", () => {
 
     it("rejects updateRule with empty content", () => {
       setupFileRoutes(mockApp, "/proto/dir", "/rule/dir", onRuleUpdated);
-      const handler = mockApp.put.mock.calls.find((c: any) => c[0] === "/admin/rule/:filename")[1];
+      const handler = mockApp.put.mock.calls.find((c: any) => c[0] === "/admin/rule/grpc/:filename")[1];
 
       mockReq.params.filename = "rule.yaml";
       mockReq.body.content = "";
@@ -190,7 +190,7 @@ describe("fileRoutes - update & upload handlers", () => {
 
     it("rejects uploadRule with empty filename", () => {
       setupFileRoutes(mockApp, "/proto/dir", "/rule/dir", onRuleUpdated);
-      const handler = mockApp.post.mock.calls.find((c: any) => c[0] === "/admin/upload/rule")[1];
+      const handler = mockApp.post.mock.calls.find((c: any) => c[0] === "/admin/upload/rule/grpc")[1];
 
       mockReq.body = { filename: "", content: "x" };
       handler(mockReq, mockRes);
@@ -202,7 +202,7 @@ describe("fileRoutes - update & upload handlers", () => {
 
     it("rejects uploadRule with empty content", () => {
       setupFileRoutes(mockApp, "/proto/dir", "/rule/dir", onRuleUpdated);
-      const handler = mockApp.post.mock.calls.find((c: any) => c[0] === "/admin/upload/rule")[1];
+      const handler = mockApp.post.mock.calls.find((c: any) => c[0] === "/admin/upload/rule/grpc")[1];
 
       mockReq.body = { filename: "r.yaml", content: "" };
       handler(mockReq, mockRes);
@@ -235,7 +235,7 @@ describe("fileRoutes - update & upload handlers", () => {
 
     it("handles write error on uploadRule", () => {
       setupFileRoutes(mockApp, "/proto/dir", "/rule/dir", onRuleUpdated);
-      const handler = mockApp.post.mock.calls.find((c: any) => c[0] === "/admin/upload/rule")[1];
+      const handler = mockApp.post.mock.calls.find((c: any) => c[0] === "/admin/upload/rule/grpc")[1];
 
       const spy = vi.spyOn(FileService, "writeFile").mockImplementation(() => {
         throw new Error("permission denied");
@@ -253,7 +253,7 @@ describe("fileRoutes - update & upload handlers", () => {
 
     it("handles write error on updateRule", () => {
       setupFileRoutes(mockApp, "/proto/dir", "/rule/dir", onRuleUpdated);
-      const handler = mockApp.put.mock.calls.find((c: any) => c[0] === "/admin/rule/:filename")[1];
+      const handler = mockApp.put.mock.calls.find((c: any) => c[0] === "/admin/rule/grpc/:filename")[1];
 
       const spy = vi.spyOn(FileService, "writeFile").mockImplementation(() => {
         throw new Error("io error");
@@ -274,7 +274,7 @@ describe("fileRoutes - update & upload handlers", () => {
   describe("listRules success & error", () => {
     it("lists rules successfully", () => {
       setupFileRoutes(mockApp, "/proto/dir", "/rule/dir", onRuleUpdated);
-      const handler = mockApp.get.mock.calls.find((c: any) => c[0] === "/admin/rules")[1];
+      const handler = mockApp.get.mock.calls.find((c: any) => c[0] === "/admin/rules/grpc")[1];
 
       const files = [{ filename: "a.yaml", path: "/rule/dir/a.yaml" }];
       const spy = vi.spyOn(FileService, "listFiles").mockReturnValue(files as any);
@@ -289,7 +289,7 @@ describe("fileRoutes - update & upload handlers", () => {
 
     it("handles error when listing rules", () => {
       setupFileRoutes(mockApp, "/proto/dir", "/rule/dir", onRuleUpdated);
-      const handler = mockApp.get.mock.calls.find((c: any) => c[0] === "/admin/rules")[1];
+      const handler = mockApp.get.mock.calls.find((c: any) => c[0] === "/admin/rules/grpc")[1];
 
       const spy = vi.spyOn(FileService, "listFiles").mockImplementation(() => {
         throw new Error("rules dir missing");
@@ -402,7 +402,7 @@ describe("fileRoutes - update & upload handlers", () => {
   describe("getRule branches", () => {
     it("returns NOT_FOUND for missing rule", () => {
       setupFileRoutes(mockApp, "/proto/dir", "/rule/dir", onRuleUpdated);
-      const handler = mockApp.get.mock.calls.find((c: any) => c[0] === "/admin/rule/:filename")[1];
+      const handler = mockApp.get.mock.calls.find((c: any) => c[0] === "/admin/rule/grpc/:filename")[1];
 
       const spy = vi.spyOn(FileService, "readFile").mockImplementation(() => {
         throw new Error("File not found: missing.yaml");
@@ -418,7 +418,7 @@ describe("fileRoutes - update & upload handlers", () => {
 
     it("handles general read error for rule", () => {
       setupFileRoutes(mockApp, "/proto/dir", "/rule/dir", onRuleUpdated);
-      const handler = mockApp.get.mock.calls.find((c: any) => c[0] === "/admin/rule/:filename")[1];
+      const handler = mockApp.get.mock.calls.find((c: any) => c[0] === "/admin/rule/grpc/:filename")[1];
 
       const spy = vi.spyOn(FileService, "readFile").mockImplementation(() => {
         throw new Error("EACCES");

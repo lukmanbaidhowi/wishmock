@@ -16,6 +16,17 @@ import { ensureDir, listFiles, resolveBasePaths, httpGetJson as httpGet } from '
 import { fileURLToPath } from 'url';
 
 const { RULES_DIR, PROTOS_DIR } = resolveBasePaths(import.meta.url);
+// Keep MCP defaults aligned with configurable Admin HTTP port.
+function stripTrailingSlashes(value: string): string {
+  let trimmed = value;
+  while (trimmed.endsWith('/')) {
+    trimmed = trimmed.slice(0, -1);
+  }
+  return trimmed;
+}
+
+const ADMIN_BASE_URL = stripTrailingSlashes(process.env.ADMIN_BASE_URL || `http://localhost:${process.env.HTTP_PORT || '3000'}`);
+const schemaBase = (url?: string) => stripTrailingSlashes(url || ADMIN_BASE_URL);
 
 export async function start() {
   await ensureDir(RULES_DIR);
@@ -32,7 +43,7 @@ export async function start() {
   });
 
   // Tools
-  server.tool('listRules', 'List rule files under rules/.', async (_extra) => ({
+  server.tool('listRules', 'List gRPC rule files under rules/grpc.', async (_extra) => ({
     content: [],
     structuredContent: { files: await listFiles(RULES_DIR, ['.yaml', '.yml', '.json']) }
   }));
@@ -66,7 +77,7 @@ export async function start() {
 
   server.tool('getStatus', 'Fetch admin status (HTTP) or filesystem fallback.', z.object({ url: z.string().optional() }).strict().partial().shape, async ({ url }: { url?: string }, _extra) => {
     try {
-      const status = await httpGet(url || 'http://localhost:3000/admin/status');
+      const status = await httpGet(url || `${ADMIN_BASE_URL}/admin/status`);
       return { content: [], structuredContent: { source: 'admin', status } };
     } catch {
       const rules = await listFiles(RULES_DIR, ['.yaml', '.yml', '.json']);
@@ -76,26 +87,29 @@ export async function start() {
   });
 
   server.tool('uploadProto', 'Upload a proto via Admin API (POST /admin/upload/proto).', z.object({ filename: z.string(), content: z.string(), url: z.string().optional() }).strict().shape, async ({ filename, content, url }: { filename: string; content: string; url?: string }, _extra) => {
-    const res = await fetch(url || 'http://localhost:3000/admin/upload/proto', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ filename, content }) });
+    const targetUrl = url || `${ADMIN_BASE_URL}/admin/upload/proto`;
+    const res = await fetch(targetUrl, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ filename, content }) });
     const text = await res.text();
     let body: any; try { body = JSON.parse(text); } catch { body = text; }
     return { content: [], structuredContent: { ok: res.ok, status: res.status, body } };
   });
 
-  server.tool('uploadRule', 'Upload a rule via Admin API (POST /admin/upload/rule).', z.object({ filename: z.string(), content: z.string(), url: z.string().optional() }).strict().shape, async ({ filename, content, url }: { filename: string; content: string; url?: string }, _extra) => {
-    const res = await fetch(url || 'http://localhost:3000/admin/upload/rule', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ filename, content }) });
+  server.tool('uploadRule', 'Upload a gRPC rule via Admin API (POST /admin/upload/rule/grpc).', z.object({ filename: z.string(), content: z.string(), url: z.string().optional() }).strict().shape, async ({ filename, content, url }: { filename: string; content: string; url?: string }, _extra) => {
+    const targetUrl = url || `${ADMIN_BASE_URL}/admin/upload/rule/grpc`;
+    const res = await fetch(targetUrl, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ filename, content }) });
     const text = await res.text();
     let body: any; try { body = JSON.parse(text); } catch { body = text; }
     return { content: [], structuredContent: { ok: res.ok, status: res.status, body } };
   });
 
   server.tool('listServices', 'List active services and methods via Admin API (GET /admin/services).', z.object({ url: z.string().optional() }).strict().partial().shape, async ({ url }: { url?: string }, _extra) => {
-    const payload = await httpGet(url || 'http://localhost:3000/admin/services');
+    const payload = await httpGet(url || `${ADMIN_BASE_URL}/admin/services`);
     return { content: [], structuredContent: payload };
   });
 
   server.tool('describeSchema', 'Describe a message/enum schema via Admin API (GET /admin/schema/:type).', z.object({ type: z.string(), url: z.string().optional() }).strict().shape, async ({ type, url }: { type: string; url?: string }, _extra) => {
-    const payload = await httpGet((url || 'http://localhost:3000') + `/admin/schema/${encodeURIComponent(type)}`);
+    const base = schemaBase(url);
+    const payload = await httpGet(`${base}/admin/schema/${encodeURIComponent(type)}`);
     return { content: [], structuredContent: payload };
   });
 

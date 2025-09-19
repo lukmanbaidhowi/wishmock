@@ -27,8 +27,9 @@ services:
       - GRPC_TLS_CA_PATH=/app/certs/ca.crt
       - GRPC_TLS_REQUIRE_CLIENT_CERT=false
     healthcheck:
-      # Inline healthcheck using Node's global fetch
-      test: ["CMD", "bun", "-e", "fetch('http://127.0.0.1:3000/liveness').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      # Inline healthcheck using Bun's global fetch.
+      # Dynamically respect HTTP_PORT so custom admin port configs keep working.
+      test: ["CMD-SHELL", "bun -e \"const port = process.env.HTTP_PORT || '3000'; fetch('http://127.0.0.1:' + port + '/liveness').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1));\""]
       interval: 5s
       timeout: 2s
       retries: 10

@@ -53,11 +53,11 @@ Content-Type: application/json
 ```
 Saves the file under `protos/common/types.proto`. The `path` must be relative to the `protos/` root and must not contain path traversal ("..") or be absolute.
 
-## Rule Files
+## Rule Files (gRPC)
 
 ### List Rule Files
 ```
-GET /admin/rules
+GET /admin/rules/grpc
 ```
 Returns list of available rule files.
 
@@ -65,14 +65,14 @@ Response:
 ```json
 {
   "files": [
-    { "filename": "helloworld.greeter.sayhello.yaml", "path": "/path/to/rules/..." }
+    { "filename": "helloworld.greeter.sayhello.yaml", "path": "/path/to/rules/grpc/..." }
   ]
 }
 ```
 
 ### Get Rule File Content
 ```
-GET /admin/rule/:filename
+GET /admin/rule/grpc/:filename
 ```
 Returns content of a specific rule file.
 
@@ -86,7 +86,7 @@ Response:
 
 ### Update Rule File
 ```
-PUT /admin/rule/:filename
+PUT /admin/rule/grpc/:filename
 Content-Type: application/json
 
 {
@@ -100,4 +100,4 @@ Content-Type: application/json
 - `GET /admin/services` - List gRPC services
 - `GET /admin/schema/:typeName` - Get message schema
 - `POST /admin/upload/proto` - Upload proto file
-- `POST /admin/upload/rule` - Upload rule file
+- `POST /admin/upload/rule/grpc` - Upload gRPC rule file

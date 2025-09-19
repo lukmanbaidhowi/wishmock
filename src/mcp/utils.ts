@@ -1,6 +1,6 @@
 import { promises as fs } from 'fs';
 import { existsSync } from 'fs';
-import { resolve, dirname } from 'path';
+import { resolve, dirname, join as joinPath } from 'path';
 import { fileURLToPath } from 'url';
 
 export function resolveBasePaths(moduleUrl: string) {
@@ -13,7 +13,7 @@ export function resolveBasePaths(moduleUrl: string) {
     try {
       const moduleDir = dirname(fileURLToPath(moduleUrl));
       const candidate = resolve(moduleDir, '..', '..');
-      if (existsSync(resolve(candidate, 'rules')) || existsSync(resolve(candidate, 'protos'))) {
+      if (existsSync(resolve(candidate, 'rules')) || existsSync(resolve(candidate, 'rules', 'grpc')) || existsSync(resolve(candidate, 'protos'))) {
         baseDir = candidate;
       } else {
         baseDir = CWD;
@@ -22,8 +22,8 @@ export function resolveBasePaths(moduleUrl: string) {
       baseDir = CWD;
     }
   }
-
-  const rulesDir = resolve(baseDir, process.env.WISHMOCK_RULES_DIR || 'rules');
+  const defaultRulesRelative = process.env.WISHMOCK_RULES_DIR || joinPath('rules', 'grpc');
+  const rulesDir = resolve(baseDir, defaultRulesRelative);
   const protosDir = resolve(baseDir, process.env.WISHMOCK_PROTOS_DIR || 'protos');
   return { BASE_DIR: baseDir, RULES_DIR: rulesDir, PROTOS_DIR: protosDir };
 }
@@ -49,4 +49,3 @@ export async function httpGetJson(url: string): Promise<any> {
   const text = await res.text();
   return safeJson(text);
 }
-

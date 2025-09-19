@@ -20,7 +20,8 @@ const TLS_CA_PATH = process.env.GRPC_TLS_CA_PATH || ""; // if provided, can enab
 const TLS_REQUIRE_CLIENT_CERT = String(process.env.GRPC_TLS_REQUIRE_CLIENT_CERT || "").toLowerCase();
 const HTTP_PORT = process.env.HTTP_PORT || 3000;
 const PROTO_DIR = path.resolve("protos");
-const RULE_DIR = path.resolve("rules");
+const RULES_ROOT = path.resolve("rules");
+const RULE_DIR = path.resolve(RULES_ROOT, "grpc");
 const UPLOAD_DIR = path.resolve("uploads");
 
 // ----- state -----

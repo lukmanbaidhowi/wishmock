@@ -12,6 +12,7 @@ services:
       - ./rules:/app/rules
       - ./uploads:/app/uploads
       - ./certs:/app/certs
+      - ./docs:/app/docs
     entrypoint: ["/app/bin/entrypoint.sh"]
     environment:
       - GRPC_PORT_PLAINTEXT=50050

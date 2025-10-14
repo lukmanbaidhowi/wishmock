@@ -4,6 +4,48 @@ Wishmock is a Bun 1.x gRPC mock platform that bundles the server, admin HTTP API
 Load `.proto` files directly, define rule-based responses in YAML/JSON, and iterate quickly with hot reload.  
 The project ships with MCP servers, a multi-stage Docker build (now including TypeScript declaration shims), and first-class tooling for grpcurl and observability experiments.
 
+## Table of Contents
+- [Features](#features)
+- [Project Structure](#project-structure)
+- [Usage (Bun 1.x)](#usage-bun-1x)
+  - [Environment (.env.example)](#environment-envexample)
+  - [Enable TLS locally with .env](#enable-tls-locally-with-env)
+- [Usage (Node / npx)](#usage-node--npx)
+- [Quick Test](#quick-test)
+- [Hot Reload](#hot-reload)
+  - [Admin UI (Web)](#admin-ui-web)
+  - [Docker](#docker)
+  - [Error Simulation Examples](#error-simulation-examples)
+- [Server Reflection](#server-reflection)
+- [TLS / mTLS](#tls--mtls)
+  - [Generate Local Self-Signed Certs](#generate-local-self-signed-certs)
+- [Rule Examples](#rule-examples)
+- [Matching & Operators](#matching--operators)
+  - [In Proto](#in-proto)
+  - [In Rules](#in-rules)
+  - [Third-Party Protos](#third-party-protos)
+- [Error Simulation (gRPC Status)](#error-simulation-grpc-status)
+- [Health Checks](#health-checks)
+- [Testing](#testing)
+- [Server Streaming Support](#server-streaming-support)
+  - [Stream Configuration](#stream-configuration)
+  - [Example Proto (Server Streaming)](#example-proto-server-streaming)
+  - [Example Rule (Server Streaming)](#example-rule-server-streaming)
+  - [Infinite Loop Streaming](#infinite-loop-streaming)
+  - [Error Handling in Streaming](#error-handling-in-streaming)
+  - [Testing Server Streaming](#testing-server-streaming)
+- [Response Body Templating](#response-body-templating)
+  - [Template Syntax](#template-syntax)
+  - [Example Template Rule](#example-template-rule)
+  - [Streaming Template Example](#streaming-template-example)
+  - [Testing Templates](#testing-templates)
+  - [Template Features](#template-features)
+- [MCP Server (Model Context Protocol)](#mcp-server-model-context-protocol)
+  - [MCP Client Config Examples](#mcp-client-config-examples)
+  - [Start Both (Server + MCP) with Bun and env file](#start-both-server--mcp-with-bun-and-env-file)
+- [Roadmap](#roadmap)
+- [Development](#development)
+
 ## Features
 - **Dynamic Proto Loading** – Read `.proto` definitions at runtime via `protobufjs`
 - **Rule Engine & Templates** – YAML/JSON rules with request/metadata matching, operators, and templated responses
@@ -68,6 +110,23 @@ bun run dev:frontend
 - Admin HTTP server: `localhost:3000`
 
 Note: Requires Bun >= 1.0. The provided Dockerfile uses `oven/bun:1.2.20-alpine`.
+
+### Environment (.env.example)
+- Copy `.env.example` to `.env` and adjust values as needed.
+- `.env` is already ignored by git (see `.gitignore`).
+- With Bun, load it using `--env-file`:
+
+```bash
+cp .env.example .env
+bun --env-file=.env run start
+```
+
+Common variables:
+- `HTTP_PORT` (default `3000`)
+- `GRPC_PORT_PLAINTEXT` (default `50050`; fallback `GRPC_PORT` is also supported)
+- `GRPC_PORT_TLS` (default `50051`)
+- TLS/mTLS: `GRPC_TLS_ENABLED`, `GRPC_TLS_CERT_PATH`, `GRPC_TLS_KEY_PATH`, `GRPC_TLS_CA_PATH`, `GRPC_TLS_REQUIRE_CLIENT_CERT`
+- MCP (optional): `ENABLE_MCP`, `ENABLE_MCP_SSE`, `MCP_HTTP_HOST`, `MCP_HTTP_PORT`, `MCP_TRANSPORT`
 
 ### Enable TLS locally with .env
 You can enable TLS for the local Bun run by providing certificate paths via environment variables. Place them in a dotenv file (for example `.env.tls`) and load it with Bun.
@@ -299,26 +358,8 @@ grpcurl -import-path protos -proto helloworld.proto -d '{"name":"Tom"}' -cacert 
   localhost:50051 helloworld.Greeter/SayHello
 ```
 
-## Example Rule (YAML)
-```yaml
-match:
-  request:
-    name: "Tom"
-responses:
-  - when:
-      request.name: "Tom"
-    body:
-      message: "Hi Tom (from mock)"
-    trailers:
-      grpc-status: "0"
-    delay_ms: 0
-    priority: 10
-  - body:
-      message: "Hello, stranger"
-    trailers:
-      grpc-status: "0"
-    priority: 0
-```
+## Rule Examples
+See `docs/rule-examples.md` for complete YAML samples, metadata matching patterns, and gRPC error simulations. The examples in that document back the quick-start walkthroughs referenced throughout this README.
 
 ## Matching & Operators
 - Equality: default for literal values in `match` and `when`.
@@ -607,12 +648,14 @@ grpcurl -import-path protos -proto streaming.proto -plaintext -d '{"user_id":"te
   - `getStatus` (Admin HTTP or filesystem fallback)
   - `uploadProto`, `uploadRule` (Admin API POST)
   - `listServices`, `describeSchema` (Admin API GET)
+  - `ruleExamples` – reads `docs/rule-examples.md` (override path with `WISHMOCK_RULES_EXAMPLES_PATH`)
 - Resources:
   - `wishmock://rules/<filename>` (YAML/JSON under rules/grpc)
   - `wishmock://protos/<filename>` (text/x-proto)
 - Notes:
   - Uses `@modelcontextprotocol/sdk` (stdio). For SSE-based clients, use the HTTP SSE server and point them to `/sse`.
-- Path resolution: the MCP server locates `rules/grpc/` and `protos/` via env overrides (`WISHMOCK_BASE_DIR`, `WISHMOCK_RULES_DIR`, `WISHMOCK_PROTOS_DIR`) or automatically relative to the server module path.
+  - Path resolution: the MCP server locates `rules/grpc/` and `protos/` via env overrides (`WISHMOCK_BASE_DIR`, `WISHMOCK_RULES_DIR`, `WISHMOCK_PROTOS_DIR`) or automatically relative to the server module path.
+  - Both transports (stdio and SSE) surface the same tools/resources set, so the `ruleExamples` tool works identically for `wishmock-mcp` and the HTTP SSE endpoint.
 
 ### MCP Client Config Examples
 

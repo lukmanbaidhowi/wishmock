@@ -13,7 +13,8 @@ import { fileURLToPath } from 'url';
 
 type Json = any;
 import { ensureDir, listFiles, resolveBasePaths, safeJson, httpGetJson } from './utils.js';
-const { RULES_DIR, PROTOS_DIR } = resolveBasePaths(import.meta.url);
+const { BASE_DIR, RULES_DIR, PROTOS_DIR } = resolveBasePaths(import.meta.url);
+const RULE_EXAMPLES_PATH = resolve(BASE_DIR, process.env.WISHMOCK_RULES_EXAMPLES_PATH || 'docs/rule-examples.md');
 // Keep MCP defaults aligned with configurable Admin HTTP port.
 function stripTrailingSlashes(value: string): string {
   let trimmed = value;
@@ -118,6 +119,14 @@ async function tool_describeSchema(args: { type: string; url?: string }) {
   const base = schemaBase(args.url);
   return await httpGetJson(`${base}/admin/schema/${encodeURIComponent(args.type)}`);
 }
+async function tool_ruleExamples() {
+  try {
+    const text = await fs.readFile(RULE_EXAMPLES_PATH, 'utf8');
+    return { path: RULE_EXAMPLES_PATH, content: text };
+  } catch (err: any) {
+    return { error: `Rule examples file not found at ${RULE_EXAMPLES_PATH}: ${err?.message || 'missing file'}` };
+  }
+}
 
 async function listResources() {
   const ruleFiles = await listFiles(RULES_DIR, ['.yaml', '.yml', '.json']);
@@ -167,6 +176,7 @@ async function handleRequest(msg: JsonRpcRequest): Promise<JsonRpcResponse> {
           { name: 'uploadRule', description: 'Upload a gRPC rule via Admin API (POST /admin/upload/rule/grpc).', inputSchema: { type: 'object', properties: { filename: { type: 'string' }, content: { type: 'string' }, url: { type: 'string' } }, required: ['filename', 'content'], additionalProperties: false } },
           { name: 'listServices', description: 'List active services and methods via Admin API (GET /admin/services).', inputSchema: { type: 'object', properties: { url: { type: 'string' } }, additionalProperties: false } },
           { name: 'describeSchema', description: 'Describe a message/enum schema via Admin API (GET /admin/schema/:type).', inputSchema: { type: 'object', properties: { type: { type: 'string' }, url: { type: 'string' } }, required: ['type'], additionalProperties: false } },
+          { name: 'ruleExamples', description: 'Read Wishmock rule examples from docs/rule-examples.md.', inputSchema: { type: 'object', properties: {}, additionalProperties: false } },
         ]});
       case 'tools/call': {
         const { name, arguments: args } = (params || {}) as { name: string; arguments?: any };
@@ -183,6 +193,7 @@ async function handleRequest(msg: JsonRpcRequest): Promise<JsonRpcResponse> {
         else if (name === 'uploadRule') result = await tool_uploadRule(args);
         else if (name === 'listServices') result = await tool_listServices(args);
         else if (name === 'describeSchema') result = await tool_describeSchema(args);
+        else if (name === 'ruleExamples') result = await tool_ruleExamples();
         else return err(id, `Unknown tool: ${name}`, -32601);
         return ok(id, { content: [{ type: 'text', text: JSON.stringify(result) }], isError: false });
       }

@@ -15,7 +15,8 @@ import { resolve } from 'path';
 import { ensureDir, listFiles, resolveBasePaths, httpGetJson as httpGet } from './utils.js';
 import { fileURLToPath } from 'url';
 
-const { RULES_DIR, PROTOS_DIR } = resolveBasePaths(import.meta.url);
+const { BASE_DIR, RULES_DIR, PROTOS_DIR } = resolveBasePaths(import.meta.url);
+const RULE_EXAMPLES_PATH = resolve(BASE_DIR, process.env.WISHMOCK_RULES_EXAMPLES_PATH || 'docs/rule-examples.md');
 // Keep MCP defaults aligned with configurable Admin HTTP port.
 function stripTrailingSlashes(value: string): string {
   let trimmed = value;
@@ -41,6 +42,14 @@ export async function start() {
       resources: { listChanged: true },
     },
   });
+
+  async function readRuleExamples(): Promise<string | null> {
+    try {
+      return await fs.readFile(RULE_EXAMPLES_PATH, 'utf8');
+    } catch {
+      return null;
+    }
+  }
 
   // Tools
   server.tool('listRules', 'List gRPC rule files under rules/grpc.', async (_extra) => ({
@@ -111,6 +120,20 @@ export async function start() {
     const base = schemaBase(url);
     const payload = await httpGet(`${base}/admin/schema/${encodeURIComponent(type)}`);
     return { content: [], structuredContent: payload };
+  });
+
+  server.tool('ruleExamples', 'Read Wishmock rule examples from docs/rule-examples.md.', async (_extra) => {
+    const text = await readRuleExamples();
+    if (text) {
+      return {
+        content: [],
+        structuredContent: { path: RULE_EXAMPLES_PATH, content: text },
+      };
+    }
+    return {
+      content: [{ type: 'text', text: `Rule examples file not found at ${RULE_EXAMPLES_PATH}.` }],
+      isError: true,
+    };
   });
 
   // Resources

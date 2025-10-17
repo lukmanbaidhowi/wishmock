@@ -158,7 +158,7 @@ export default function wrapServerWithReflection(server: grpc.Server, opts?: { p
       const fdp = FileDescriptorProto.deserializeBinary(buf);
       const originalName = fdp.getName();
       const fileName = canonical(originalName);
-      
+
       // Index by multiple candidate keys to handle absolute/relative mismatches
       // that can happen between descriptor file names and dependency entries
       // (e.g., "/abs/.../protos/google/type/datetime.proto" vs "google/type/datetime.proto").
@@ -264,6 +264,15 @@ export default function wrapServerWithReflection(server: grpc.Server, opts?: { p
   const pkgDef = protoLoader.loadSync(reflectionProto);
   const pkg = grpc.loadPackageDefinition(pkgDef) as any;
   const reflectionService = pkg.grpc.reflection.v1alpha.ServerReflection.service;
+  // Normalize method casing: some loaders expose `serverReflectionInfo` (camelCase)
+  // while tests and some tooling expect `ServerReflectionInfo` (Proto case).
+  try {
+    const desired = 'ServerReflectionInfo';
+    if (!reflectionService[desired]) {
+      const key = Object.keys(reflectionService).find(k => k.toLowerCase() === desired.toLowerCase());
+      if (key) reflectionService[desired] = reflectionService[key];
+    }
+  } catch {}
 
   // If a loaded packageObject is provided, harvest any message types that carry
   // fileDescriptorProtos (e.g., google.type.DateTime) to ensure dependencies

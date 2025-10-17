@@ -10,8 +10,7 @@ dist
 # Runtime/uploads (mounted at runtime if needed)
 uploads
 
-# Tests and coverage (not needed for runtime image)
-tests
+# Coverage (not needed for images)
 coverage
 .nyc_output
 

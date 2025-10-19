@@ -2,7 +2,7 @@
   "name": "wishmock",
   "type": "module",
   "description": "Bun/Node gRPC mock server with protobufjs, hot reload, and rule-based responses",
-  "version": "0.1.0",
+  "version": "0.9.0",
   "license": "MIT",
   "main": "dist/app.js",
   "bin": {

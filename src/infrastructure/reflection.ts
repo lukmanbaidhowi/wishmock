@@ -765,6 +765,9 @@ export default function wrapServerWithReflection(
     },
   };
 
-  (serverProxy as any).addService(reflectionService, handlers);
+  // Register the reflection service on the underlying server directly.
+  // Using the raw server here avoids any quirks with Proxy traps in certain
+  // runtimes while still returning a proxied server for user services.
+  (server as any).addService(reflectionService, handlers);
   return serverProxy;
 }

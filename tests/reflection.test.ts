@@ -1,6 +1,11 @@
 import { describe, it, expect, vi } from "bun:test";
 import { EventEmitter } from "events";
-import wrapServerWithReflection from "../src/infrastructure/reflection.js";
+// Load the real module by absolute TS path to avoid any cross-file mocks
+async function loadWrap() {
+  const real = new URL("../src/infrastructure/reflection.ts", import.meta.url).pathname;
+  const mod = await import(real);
+  return mod.default as (server: any, opts?: any) => any;
+}
 import {
   FileDescriptorProto,
   DescriptorProto,
@@ -48,9 +53,10 @@ function createDescriptorBuffer(options: DescriptorOptions = {}): Buffer {
 }
 
 describe("wrapServerWithReflection", () => {
-  it("menambahkan layanan reflection ke server dasar", () => {
+  it("menambahkan layanan reflection ke server dasar", async () => {
     const baseServer: FakeServer = { addService: vi.fn() };
 
+    const wrapServerWithReflection = await loadWrap();
     wrapServerWithReflection(baseServer as any);
 
     expect(baseServer.addService).toHaveBeenCalledTimes(1);
@@ -59,8 +65,9 @@ describe("wrapServerWithReflection", () => {
     expect(typeof handlers.ServerReflectionInfo).toBe("function");
   });
 
-  it("mengembalikan daftar layanan dan descriptor untuk simbol yang diminta", () => {
+  it("mengembalikan daftar layanan dan descriptor untuk simbol yang diminta", async () => {
     const baseServer: FakeServer = { addService: vi.fn() };
+    const wrapServerWithReflection = await loadWrap();
     const serverProxy = wrapServerWithReflection(baseServer as any);
     const [, reflectionHandlers] = baseServer.addService.mock.calls[0];
 
@@ -102,11 +109,11 @@ describe("wrapServerWithReflection", () => {
     expect(decoded.getName()).toBe("hello.proto");
   });
 
-  it("mengirim descriptor yang dipanen dari packageObject saat layanan tidak memiliki metadata", () => {
+  it("mengirim descriptor yang dipanen dari packageObject saat layanan tidak memiliki metadata", async () => {
     const baseServer: FakeServer = { addService: vi.fn() };
     const descriptor = createDescriptorBuffer({ fileName: "package-only.proto", packageName: "custom" });
     const packageObject = { Foo: { fileDescriptorProtos: [descriptor] } };
-
+    const wrapServerWithReflection = await loadWrap();
     wrapServerWithReflection(baseServer as any, { packageObject });
     const [, reflectionHandlers] = baseServer.addService.mock.calls[0];
 

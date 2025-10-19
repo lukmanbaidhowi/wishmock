@@ -1,9 +1,22 @@
 import { describe, it, expect, vi } from "bun:test";
 import { EventEmitter } from "events";
-// Load the real module by absolute TS path to avoid any cross-file mocks
+// Load the real module from an isolated copy to avoid cross-file mocks
+import fs from "fs";
+import path from "path";
 async function loadWrap() {
-  const real = new URL("../src/infrastructure/reflection.ts", import.meta.url).pathname;
-  const mod = await import(real);
+  const srcUrl = new URL("../src/infrastructure/reflection.ts", import.meta.url);
+  const srcPath = srcUrl.pathname;
+  const tmpDir = path.join(process.cwd(), "tmp", "reflection-test");
+  fs.mkdirSync(tmpDir, { recursive: true });
+  const dstPath = path.join(tmpDir, "reflection.ts");
+  try {
+    const src = fs.readFileSync(srcPath, "utf8");
+    const prev = fs.existsSync(dstPath) ? fs.readFileSync(dstPath, "utf8") : "";
+    if (src !== prev) fs.writeFileSync(dstPath, src, "utf8");
+  } catch {}
+  const url = new URL("file://" + dstPath);
+  // add query to bypass any module cache
+  const mod = await import(url.href + "?isolated=1");
   return mod.default as (server: any, opts?: any) => any;
 }
 import {

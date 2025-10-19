@@ -562,6 +562,6 @@ export default function wrapServerWithReflection(server: grpc.Server, opts?: { p
     },
   };
 
-  (serverProxy as any).addService(reflectionService, handlers);
+  server.addService(reflectionService, handlers);
   return serverProxy;
 }

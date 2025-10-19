@@ -38,6 +38,7 @@ RUN mkdir -p frontend/dist
 COPY --from=builder /app/frontend/dist ./frontend/dist
 COPY frontend/index.html ./frontend/index.html
 COPY frontend/styles.css ./frontend/styles.css
+COPY docs ./docs
 COPY protos ./protos
 COPY rules ./rules
 

@@ -64,7 +64,11 @@ describe("wrapServerWithReflection", () => {
     const serverProxy = wrapServerWithReflection(baseServer as any);
     const [, reflectionHandlers] = baseServer.addService.mock.calls[0];
 
-    const descriptor = createDescriptorBuffer({ fileName: "hello.proto", packageName: "pkg", serviceName: "Greeter" });
+    const descriptor = createDescriptorBuffer({
+      fileName: "hello.proto",
+      packageName: "pkg",
+      serviceName: "Greeter",
+    });
     const serviceDef = {
       SayHello: {
         path: "/pkg.Greeter/SayHello",
@@ -90,21 +94,29 @@ describe("wrapServerWithReflection", () => {
     reflectionHandlers.ServerReflectionInfo(call as any);
 
     emitter.emit("data", { listServices: {} });
-    const services = writes[0].listServicesResponse.service.map((s: any) => s.name);
+    const services = writes[0].listServicesResponse.service.map(
+      (s: any) => s.name,
+    );
     expect(services).toContain("pkg.Greeter");
 
     const writeCount = writes.length;
     emitter.emit("data", { fileContainingSymbol: "pkg.Greeter" });
-    const descriptorResponse = writes.slice(writeCount)[0].fileDescriptorResponse;
+    const descriptorResponse =
+      writes.slice(writeCount)[0].fileDescriptorResponse;
 
     expect(descriptorResponse.fileDescriptorProto).toHaveLength(1);
-    const decoded = FileDescriptorProto.deserializeBinary(descriptorResponse.fileDescriptorProto[0]);
+    const decoded = FileDescriptorProto.deserializeBinary(
+      descriptorResponse.fileDescriptorProto[0],
+    );
     expect(decoded.getName()).toBe("hello.proto");
   });
 
   it("mengirim descriptor yang dipanen dari packageObject saat layanan tidak memiliki metadata", () => {
     const baseServer: FakeServer = { addService: vi.fn() };
-    const descriptor = createDescriptorBuffer({ fileName: "package-only.proto", packageName: "custom" });
+    const descriptor = createDescriptorBuffer({
+      fileName: "package-only.proto",
+      packageName: "custom",
+    });
     const packageObject = { Foo: { fileDescriptorProtos: [descriptor] } };
 
     wrapServerWithReflection(baseServer as any, { packageObject });
@@ -128,9 +140,17 @@ describe("wrapServerWithReflection", () => {
     const response = writes[0].fileDescriptorResponse;
 
     expect(response.fileDescriptorProto.length).toBeGreaterThan(0);
-    const decodedNames = Array.from(response.fileDescriptorProto, (buf: Uint8Array) => {
-      try { return FileDescriptorProto.deserializeBinary(buf).getName(); } catch { return null; }
-    });
+    const decodedNames = Array.from(
+      response.fileDescriptorProto,
+      (buf: Uint8Array) => {
+        try {
+          return FileDescriptorProto.deserializeBinary(buf).getName();
+        } catch (e) {
+          console.error("Failed to deserialize descriptor:", e);
+          return null;
+        }
+      },
+    );
     expect(decodedNames).toContain("package-only.proto");
   });
 });

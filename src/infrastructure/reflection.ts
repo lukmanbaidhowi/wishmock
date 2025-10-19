@@ -338,15 +338,25 @@ export default function wrapServerWithReflection(
   };
 
   // Load the official reflection proto from the installed module path
-  console.log("import.meta.url:", import.meta.url);
   const req = createRequire(import.meta.url);
-  const modPkgPath = req.resolve("grpc-node-server-reflection/package.json");
-  console.log("modPkgPath:", modPkgPath);
+  let modPkgPath;
+  try {
+    modPkgPath = req.resolve("grpc-node-server-reflection/package.json");
+  } catch (e: any) {
+    throw new Error(
+      `Failed to resolve grpc-node-server-reflection: ${e.message}`,
+    );
+  }
   const reflectionProto = path.join(
     path.dirname(modPkgPath),
     "proto/grpc/reflection/v1alpha/reflection.proto",
   );
-  console.log("reflectionProto:", reflectionProto);
+
+  // THROW FOR DEBUGGING
+  throw new Error(
+    `DEBUG: import.meta.url=${import.meta.url}, modPkgPath=${modPkgPath}, reflectionProto=${reflectionProto}`,
+  );
+
   const pkgDef = protoLoader.loadSync(reflectionProto);
   const pkg = grpc.loadPackageDefinition(pkgDef) as any;
   const reflectionService =

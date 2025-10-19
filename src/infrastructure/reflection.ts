@@ -338,14 +338,15 @@ export default function wrapServerWithReflection(
   };
 
   // Load the official reflection proto from the installed module path
-  const req = createRequire(import.meta.url);
-  const modPkgPath = req.resolve("grpc-node-server-reflection/package.json");
-  const reflectionProto = path.join(
-    path.dirname(modPkgPath),
-    "proto/grpc/reflection/v1alpha/reflection.proto",
-  );
+  // Be resilient if module resolution fails in certain environments (e.g., CI image)
   let reflectionService: any;
   try {
+    const req = createRequire(import.meta.url);
+    const modPkgPath = req.resolve("grpc-node-server-reflection/package.json");
+    const reflectionProto = path.join(
+      path.dirname(modPkgPath),
+      "proto/grpc/reflection/v1alpha/reflection.proto",
+    );
     const pkgDef = protoLoader.loadSync(reflectionProto);
     const pkg = grpc.loadPackageDefinition(pkgDef) as any;
     reflectionService =

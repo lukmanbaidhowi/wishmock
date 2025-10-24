@@ -127,6 +127,10 @@ Common variables:
 - `GRPC_PORT_TLS` (default `50051`)
 - TLS/mTLS: `GRPC_TLS_ENABLED`, `GRPC_TLS_CERT_PATH`, `GRPC_TLS_KEY_PATH`, `GRPC_TLS_CA_PATH`, `GRPC_TLS_REQUIRE_CLIENT_CERT`
 - MCP (optional): `ENABLE_MCP`, `ENABLE_MCP_SSE`, `MCP_HTTP_HOST`, `MCP_HTTP_PORT`, `MCP_TRANSPORT`
+ - Validation (optional):
+   - `VALIDATION_ENABLED` — enable request validation based on `.proto` annotations (default `false`)
+   - `VALIDATION_SOURCE` — `auto|pgv|buf` rule source selection (default `auto`)
+   - `VALIDATION_MODE` — streaming mode `per_message|aggregate` (default `per_message`)
 
 ### Enable TLS locally with .env
 You can enable TLS for the local Bun run by providing certificate paths via environment variables. Place them in a dotenv file (for example `.env.tls`) and load it with Bun.

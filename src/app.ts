@@ -7,6 +7,7 @@ import { loadProtos, type ProtoFileStatus } from "./infrastructure/protoLoader.j
 import { loadRules as loadRulesFromDisk } from "./infrastructure/ruleLoader.js";
 import { createGrpcServer, type HandlerMeta } from "./infrastructure/grpcServer.js";
 import { createAdminApp } from "./interfaces/httpAdmin.js";
+import { runtime as validationRuntime } from "./infrastructure/validation/runtime.js";
 
 // Ports
 const GRPC_PORT_PLAINTEXT = (process.env.GRPC_PORT_PLAINTEXT || process.env.GRPC_PORT || 50050) as any;
@@ -105,6 +106,8 @@ async function rebuild(reason: string) {
     const { root, report } = await loadProtos(PROTO_DIR);
     protoReport = report;
     currentRoot = root;
+    // Refresh validation runtime descriptors/IR
+    try { validationRuntime.loadFromRoot(root); } catch (e) { err('Validation runtime load failed', e); }
     const loaded = report.filter(r => r.status === "loaded").map(r => r.file);
     const skipped = report.filter(r => r.status === "skipped");
     await startGrpc(root);

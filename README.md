@@ -26,6 +26,7 @@ The project ships with MCP servers, a multi-stage Docker build (now including Ty
   - [Third-Party Protos](#third-party-protos)
 - [Error Simulation (gRPC Status)](#error-simulation-grpc-status)
 - [Health Checks](#health-checks)
+- [Validation](#validation)
 - [Testing](#testing)
 - [Server Streaming Support](#server-streaming-support)
   - [Stream Configuration](#stream-configuration)
@@ -451,6 +452,19 @@ grpcurl -import-path protos -proto calendar.proto -plaintext -d '{"id":"next"}' 
   curl -f http://localhost:3000/liveness
   curl -f http://localhost:3000/readiness
   ```
+
+## Validation
+
+The validation engine supports both **PGV** (Protoc Gen Validate) and **Buf** validation frameworks.
+
+- Enable request validation by setting `VALIDATION_ENABLED=true` in `.env`.
+- Choose validation source: `VALIDATION_SOURCE=auto|pgv|buf`.
+- Select validation mode: `VALIDATION_MODE=per_message|aggregate`.
+- Validation is applied to all requests, including streaming.
+
+See the detailed documentation:
+- [PGV Validation Guide](./docs/pgv-validation.md) – Comprehensive reference for PGV rules
+- [Buf Validation Guide](./docs/buf-validation.md) – Buf validation constraints and CEL expressions
 
 ## Testing
 - Run tests with Bun:

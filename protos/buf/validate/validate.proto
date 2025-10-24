@@ -1,0 +1,103 @@
+syntax = "proto3";
+
+package buf.validate;
+
+import "google/protobuf/descriptor.proto";
+
+extend google.protobuf.FieldOptions {
+  ValidateFieldConstraints field = 5000;
+}
+
+extend google.protobuf.MessageOptions {
+  ValidateMessageConstraints message = 5001;
+}
+
+message ValidateFieldConstraints {
+  StringConstraints string_val = 1;
+  IntConstraints int_val = 2;
+  DoubleConstraints double_val = 3;
+  UintConstraints uint_val = 4;
+  RepeatedConstraints repeated_val = 5;
+  MessageConstraints message_val = 6;
+  CelConstraints cel = 7;
+  EnumConstraints enum_val = 8;
+}
+
+message ValidateMessageConstraints {
+  bool skip = 1;
+}
+
+message StringConstraints {
+  int32 min_len = 1;
+  int32 max_len = 2;
+  string pattern = 3;
+  bool email = 4;
+  bool hostname = 5;
+  bool ip = 6;
+  bool ipv4 = 7;
+  bool ipv6 = 8;
+  bool uri = 9;
+  bool uuid = 10;
+  string prefix = 11;
+  string suffix = 12;
+  string contains = 13;
+  string not_contains = 14;
+  repeated string in = 15;
+  repeated string not_in = 16;
+  int32 min_bytes = 17;
+  int32 max_bytes = 18;
+  string well_known_regex = 19;
+}
+
+message IntConstraints {
+  int64 const = 1;
+  int64 lt = 2;
+  int64 lte = 3;
+  int64 gt = 4;
+  int64 gte = 5;
+  repeated int64 in = 6;
+  repeated int64 not_in = 7;
+}
+
+message DoubleConstraints {
+  double const = 1;
+  double lt = 2;
+  double lte = 3;
+  double gt = 4;
+  double gte = 5;
+  repeated double in = 6;
+  repeated double not_in = 7;
+}
+
+message UintConstraints {
+  uint64 const = 1;
+  uint64 lt = 2;
+  uint64 lte = 3;
+  uint64 gt = 4;
+  uint64 gte = 5;
+  repeated uint64 in = 6;
+  repeated uint64 not_in = 7;
+}
+
+message CelConstraints {
+  string expression = 1;
+  string message = 2;
+}
+
+message EnumConstraints {
+  bool defined_only = 1;
+  repeated int32 in = 2;
+  repeated int32 not_in = 3;
+}
+
+message RepeatedConstraints {
+  int32 min_items = 1;
+  int32 max_items = 2;
+  bool unique = 3;
+  StringConstraints items = 4;
+}
+
+message MessageConstraints {
+  bool required = 1;
+  bool skip = 2;
+}

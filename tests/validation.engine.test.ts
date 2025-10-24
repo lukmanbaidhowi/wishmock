@@ -468,3 +468,243 @@ describe("Validator Engine (Fase 3)", () => {
   });
 });
 
+describe("Validation Engine - CEL Expressions", () => {
+  it("should validate CEL expression success", () => {
+    const ir: ValidationIR = {
+      typeName: "test.CelMessage",
+      fields: new Map([
+        ["age", {
+          kind: "cel",
+          ops: {
+            expression: "age >= 18",
+            message: "must be 18 years old"
+          },
+          fieldPath: "age",
+          fieldType: "int32",
+          source: "buf",
+        }]
+      ])
+    };
+
+    const message = { age: 25 };
+    const result = validate(ir, message);
+
+    expect(result.ok).toBe(true);
+  });
+
+  it("should validate CEL expression failure", () => {
+    const ir: ValidationIR = {
+      typeName: "test.CelMessage",
+      fields: new Map([
+        ["age", {
+          kind: "cel",
+          ops: {
+            expression: "age >= 18",
+            message: "must be 18 years old"
+          },
+          fieldPath: "age",
+          fieldType: "int32",
+          source: "buf",
+        }]
+      ])
+    };
+
+    const message = { age: 15 };
+    const result = validate(ir, message);
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.violations.length).toBe(1);
+      expect(result.violations[0].description).toBe("must be 18 years old");
+    }
+  });
+
+  it("should validate complex CEL expression with multiple fields", () => {
+    const ir: ValidationIR = {
+      typeName: "test.RangeMessage",
+      fields: new Map([
+        ["range_check", {
+          kind: "cel",
+          ops: {
+            expression: "min_value < max_value"
+          },
+          fieldPath: "range_check",
+          fieldType: "bool",
+          source: "buf",
+        }]
+      ])
+    };
+
+    const message = { min_value: 10, max_value: 20 };
+    const result = validate(ir, message);
+
+    expect(result.ok).toBe(true);
+  });
+
+  it("should fail complex CEL expression with multiple fields", () => {
+    const ir: ValidationIR = {
+      typeName: "test.RangeMessage",
+      fields: new Map([
+        ["range_check", {
+          kind: "cel",
+          ops: {
+            expression: "min_value < max_value",
+            message: "min_value must be less than max_value"
+          },
+          fieldPath: "range_check",
+          fieldType: "bool",
+          source: "buf",
+        }]
+      ])
+    };
+
+    const message = { min_value: 30, max_value: 20 };
+    const result = validate(ir, message);
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.violations[0].description).toBe("min_value must be less than max_value");
+    }
+  });
+});
+
+describe("Validation Engine - Enum Validation", () => {
+  it("should validate enum in constraint", () => {
+    const ir: ValidationIR = {
+      typeName: "test.EnumMessage",
+      fields: new Map([
+        ["status", {
+          kind: "enum",
+          ops: {
+            in: [1, 2, 3]
+          },
+          fieldPath: "status",
+          fieldType: "enum",
+          source: "buf",
+        }]
+      ])
+    };
+
+    const message = { status: 2 };
+    const result = validate(ir, message);
+
+    expect(result.ok).toBe(true);
+  });
+
+  it("should fail enum in constraint for disallowed value", () => {
+    const ir: ValidationIR = {
+      typeName: "test.EnumMessage",
+      fields: new Map([
+        ["status", {
+          kind: "enum",
+          ops: {
+            in: [1, 2, 3]
+          },
+          fieldPath: "status",
+          fieldType: "enum",
+          source: "buf",
+        }]
+      ])
+    };
+
+    const message = { status: 5 };
+    const result = validate(ir, message);
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.violations[0].rule).toBe("in");
+    }
+  });
+
+  it("should validate enum not_in constraint", () => {
+    const ir: ValidationIR = {
+      typeName: "test.EnumMessage",
+      fields: new Map([
+        ["status", {
+          kind: "enum",
+          ops: {
+            not_in: [0, 4]
+          },
+          fieldPath: "status",
+          fieldType: "enum",
+          source: "buf",
+        }]
+      ])
+    };
+
+    const message = { status: 2 };
+    const result = validate(ir, message);
+
+    expect(result.ok).toBe(true);
+  });
+
+  it("should fail enum not_in constraint for disallowed value", () => {
+    const ir: ValidationIR = {
+      typeName: "test.EnumMessage",
+      fields: new Map([
+        ["status", {
+          kind: "enum",
+          ops: {
+            not_in: [0, 4]
+          },
+          fieldPath: "status",
+          fieldType: "enum",
+          source: "buf",
+        }]
+      ])
+    };
+
+    const message = { status: 0 };
+    const result = validate(ir, message);
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.violations[0].rule).toBe("not_in");
+    }
+  });
+
+  it("should validate enum defined_only constraint", () => {
+    const ir: ValidationIR = {
+      typeName: "test.EnumMessage",
+      fields: new Map([
+        ["status", {
+          kind: "enum",
+          ops: {
+            definedOnly: true
+          },
+          fieldPath: "status",
+          fieldType: "enum",
+          source: "buf",
+        }]
+      ])
+    };
+
+    const message = { status: 1 };
+    const result = validate(ir, message);
+
+    expect(result.ok).toBe(true);
+  });
+
+  it("should allow null/undefined enum values when not defined_only", () => {
+    const ir: ValidationIR = {
+      typeName: "test.EnumMessage",
+      fields: new Map([
+        ["status", {
+          kind: "enum",
+          ops: {
+            in: [1, 2, 3]
+          },
+          fieldPath: "status",
+          fieldType: "enum",
+          source: "buf",
+        }]
+      ])
+    };
+
+    const message = { status: undefined };
+    const result = validate(ir, message);
+
+    expect(result.ok).toBe(true);
+  });
+});
+

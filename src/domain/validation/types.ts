@@ -1,4 +1,4 @@
-export type ValidationSource = 'auto' | 'pgv' | 'buf';
+export type ValidationSource = 'auto' | 'pgv' | 'protovalidate';
 export type ValidationMode = 'per_message' | 'aggregate';
 
 export interface StringConstraintOps {
@@ -49,21 +49,34 @@ export interface BoolConstraintOps {
   const?: boolean;
 }
 
+export interface CelConstraintOps {
+  expression: string;
+  message?: string;
+}
+
+export interface EnumConstraintOps {
+  definedOnly?: boolean;
+  in?: number[];
+  not_in?: number[];
+}
+
 export type ConstraintOps =
   | StringConstraintOps
   | NumberConstraintOps
   | RepeatedConstraintOps
   | PresenceConstraintOps
-  | BoolConstraintOps;
+  | BoolConstraintOps
+  | CelConstraintOps
+  | EnumConstraintOps;
 
-export type ConstraintKind = 'string' | 'number' | 'repeated' | 'presence' | 'bool';
+export type ConstraintKind = 'string' | 'number' | 'repeated' | 'presence' | 'bool' | 'cel' | 'enum';
 
 export interface FieldConstraint {
   kind: ConstraintKind;
   ops: ConstraintOps;
   fieldPath: string;
   fieldType: string;
-  source: 'pgv' | 'buf';
+  source: 'pgv' | 'protovalidate';
 }
 
 export interface ValidationIR {

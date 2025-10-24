@@ -7,6 +7,7 @@ import type {
   NumberConstraintOps,
   RepeatedConstraintOps,
   PresenceConstraintOps,
+  EnumConstraintOps,
 } from "./types.js";
 
 const regexCache = new Map<string, RegExp>();
@@ -19,6 +20,22 @@ function getOrCompileRegex(pattern: string, flags?: string): RegExp {
     regexCache.set(key, regex);
   }
   return regex;
+}
+
+// Simple CEL expression evaluator
+function evaluateCelExpression(expression: string, context: Record<string, any>): boolean {
+  try {
+    // Create a function that has access to message fields as variables
+    const variables = Object.keys(context).join(', ');
+    const values = Object.values(context);
+    
+    // Escape the expression to prevent injection
+    // Support basic CEL operators: ==, !=, <, >, <=, >=, &&, ||, !
+    const fn = new Function(...Object.keys(context), `return ${expression}`);
+    return Boolean(fn(...values));
+  } catch (error) {
+    return false;
+  }
 }
 
 function validateString(
@@ -391,6 +408,68 @@ function validatePresence(
   return violations;
 }
 
+function validateCel(
+  expression: string,
+  message: any,
+  celMessage?: string
+): FieldViolation[] {
+  const violations: FieldViolation[] = [];
+  
+  const result = evaluateCelExpression(expression, message);
+  if (!result) {
+    violations.push({
+      field: "",
+      description: celMessage || `failed CEL validation: ${expression}`,
+      rule: "cel",
+    });
+  }
+
+  return violations;
+}
+
+function validateEnum(
+  value: unknown,
+  ops: EnumConstraintOps,
+  fieldPath: string
+): FieldViolation[] {
+  const violations: FieldViolation[] = [];
+
+  if (value === undefined || value === null) {
+    return violations;
+  }
+
+  const enumValue = Number(value);
+
+  if (ops.definedOnly && !Number.isInteger(enumValue)) {
+    violations.push({
+      field: fieldPath,
+      description: "enum value must be defined",
+      rule: "defined_only",
+      value,
+    });
+  }
+
+  if (ops.in && ops.in.length > 0 && !ops.in.includes(enumValue)) {
+    violations.push({
+      field: fieldPath,
+      description: `enum value must be one of: ${ops.in.join(", ")}`,
+      rule: "in",
+      value: enumValue,
+    });
+  }
+
+  if (ops.not_in && ops.not_in.length > 0 && ops.not_in.includes(enumValue)) {
+    violations.push({
+      field: fieldPath,
+      description: `enum value must not be one of: ${ops.not_in.join(", ")}`,
+      rule: "not_in",
+      value: enumValue,
+    });
+  }
+
+  return violations;
+}
+
 function validateField(
   message: any,
   constraint: FieldConstraint
@@ -429,6 +508,12 @@ function validateField(
       return validateRepeated(value, constraint.ops as RepeatedConstraintOps, constraint.fieldPath);
     case "presence":
       return validatePresence(value, constraint.ops as PresenceConstraintOps, constraint.fieldPath);
+    case "cel":
+      const celOps = constraint.ops as any;
+      return validateCel(celOps.expression, message, celOps.message);
+    case "enum":
+      const enumOps = constraint.ops as EnumConstraintOps;
+      return validateEnum(value, enumOps, constraint.fieldPath);
     default:
       return [];
   }

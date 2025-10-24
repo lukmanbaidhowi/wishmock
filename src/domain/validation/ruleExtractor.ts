@@ -7,6 +7,7 @@ import type {
   RepeatedConstraintOps,
   ConstraintKind,
   PresenceConstraintOps,
+  EnumConstraintOps,
 } from "./types.js";
 
 // Note: We keep proto field names as-is (snake_case) because
@@ -144,14 +145,218 @@ function extractRepeatedRulesFromFlat(options: Record<string, any>): RepeatedCon
   return Object.keys(ops).length > 0 ? ops : null;
 }
 
+// ============ Protovalidate Validation Extraction ============
+
+function extractProtovalidateStringRules(options: Record<string, any>): StringConstraintOps | null {
+  const ops: StringConstraintOps = {};
+  const prefix = "(buf.validate.field).string_val.";
+  
+  let foundAny = false;
+  for (const [key, value] of Object.entries(options)) {
+    if (!key.startsWith(prefix)) continue;
+    foundAny = true;
+    
+    const ruleName = key.slice(prefix.length);
+    switch (ruleName) {
+      case "min_len": ops.min_len = Number(value); break;
+      case "max_len": ops.max_len = Number(value); break;
+      case "min_bytes": ops.min_bytes = Number(value); break;
+      case "max_bytes": ops.max_bytes = Number(value); break;
+      case "pattern": ops.pattern = String(value); break;
+      case "prefix": ops.prefix = String(value); break;
+      case "suffix": ops.suffix = String(value); break;
+      case "contains": ops.contains = String(value); break;
+      case "not_contains": ops.not_contains = String(value); break;
+      case "email": if (value === true) ops.email = true; break;
+      case "hostname": if (value === true) ops.hostname = true; break;
+      case "ipv4": if (value === true) ops.ipv4 = true; break;
+      case "ipv6": if (value === true) ops.ipv6 = true; break;
+      case "uri": if (value === true) ops.uri = true; break;
+      case "uuid": if (value === true) ops.uuid = true; break;
+      case "ip": ops.ipv4 = true; ops.ipv6 = true; break;
+    }
+  }
+
+  return foundAny ? ops : null;
+}
+
+function extractProtovalidateNumberRules(options: Record<string, any>, fieldType: string): NumberConstraintOps | null {
+  const ops: NumberConstraintOps = {};
+  
+  const typeKey = fieldType.includes('int') ? 'int_val'
+    : fieldType.includes('float') || fieldType.includes('double') ? 'double_val'
+    : fieldType.includes('uint') ? 'uint_val'
+    : null;
+
+  if (!typeKey) return null;
+
+  const prefix = `(buf.validate.field).${typeKey}.`;
+  let foundAny = false;
+
+  for (const [key, value] of Object.entries(options)) {
+    if (!key.startsWith(prefix)) continue;
+    foundAny = true;
+    
+    const ruleName = key.slice(prefix.length);
+    switch (ruleName) {
+      case "const": ops.const = Number(value); break;
+      case "lt": ops.lt = Number(value); break;
+      case "lte": ops.lte = Number(value); break;
+      case "gt": ops.gt = Number(value); break;
+      case "gte": ops.gte = Number(value); break;
+    }
+  }
+
+  return foundAny ? ops : null;
+}
+
+function extractProtovalidateRepeatedRules(options: Record<string, any>): RepeatedConstraintOps | null {
+  const ops: RepeatedConstraintOps = {};
+  const prefix = "(buf.validate.field).repeated_val.";
+  
+  let foundAny = false;
+  for (const [key, value] of Object.entries(options)) {
+    if (!key.startsWith(prefix)) continue;
+    foundAny = true;
+    
+    const ruleName = key.slice(prefix.length);
+    switch (ruleName) {
+      case "min_items": ops.min_items = Number(value); break;
+      case "max_items": ops.max_items = Number(value); break;
+      case "unique": ops.unique = Boolean(value); break;
+    }
+  }
+
+  return foundAny ? ops : null;
+}
+
+function extractProtovalidateRequiredRule(options: Record<string, any>): PresenceConstraintOps | null {
+  const key = "(buf.validate.field).message_val.required";
+  if (options[key] === true) {
+    return { required: true };
+  }
+  return null;
+}
+
+// ============ CEL Expression Support ============
+
+function extractCelExpression(options: Record<string, any>): FieldConstraint | null {
+  // Check for Protovalidate CEL: (buf.validate.field).cel
+  const protovaldateCelPrefix = "(buf.validate.field).cel.";
+  let celExpression: string | undefined;
+  let celMessage: string | undefined;
+
+  for (const [key, value] of Object.entries(options)) {
+    if (key.startsWith(protovaldateCelPrefix)) {
+      const ruleName = key.slice(protovaldateCelPrefix.length);
+      if (ruleName === "expression") {
+        celExpression = String(value);
+      } else if (ruleName === "message") {
+        celMessage = String(value);
+      }
+    }
+  }
+
+  if (celExpression) {
+    return {
+      kind: 'cel',
+      ops: { expression: celExpression, message: celMessage },
+      fieldPath: '',
+      fieldType: '',
+      source: 'protovalidate',
+    };
+  }
+
+  return null;
+}
+
+// ============ Enum Validation Extraction ============
+
+function extractEnumRules(options: Record<string, any>): EnumConstraintOps | null {
+  const ops: EnumConstraintOps = {};
+  const prefix = "(buf.validate.field).enum_val.";
+  
+  let foundAny = false;
+  for (const [key, value] of Object.entries(options)) {
+    if (!key.startsWith(prefix)) continue;
+    foundAny = true;
+    
+    const ruleName = key.slice(prefix.length);
+    switch (ruleName) {
+      case "defined_only": ops.definedOnly = Boolean(value); break;
+      case "in":
+        if (Array.isArray(value)) ops.in = value.map(Number);
+        else if (value !== undefined) ops.in = [Number(value)];
+        break;
+      case "not_in":
+        if (Array.isArray(value)) ops.not_in = value.map(Number);
+        else if (value !== undefined) ops.not_in = [Number(value)];
+        break;
+    }
+  }
+
+  return foundAny ? ops : null;
+}
+
 export function extractFieldRules(field: protobuf.Field): FieldConstraint | null {
   if (!field.options) return null;
 
-  // Use the original proto field name (snake_case) to match
-  // the request object keys produced by proto-loader (keepCase=true).
   const fieldPath = field.name;
   const fieldType = field.type;
 
+  // Try Protovalidate validation first
+  const protovalidateStringOps = extractProtovalidateStringRules(field.options);
+  if (protovalidateStringOps) {
+    return {
+      kind: 'string',
+      ops: protovalidateStringOps,
+      fieldPath,
+      fieldType,
+      source: 'protovalidate',
+    };
+  }
+
+  const numberTypes = ['int32', 'int64', 'uint32', 'uint64', 'sint32', 'sint64', 
+                       'fixed32', 'fixed64', 'sfixed32', 'sfixed64', 'float', 'double'];
+  
+  if (numberTypes.includes(fieldType)) {
+    const protovalidateNumberOps = extractProtovalidateNumberRules(field.options, fieldType);
+    if (protovalidateNumberOps) {
+      return {
+        kind: 'number',
+        ops: protovalidateNumberOps,
+        fieldPath,
+        fieldType,
+        source: 'protovalidate',
+      };
+    }
+  }
+
+  if (field.repeated) {
+    const protovalidateRepeatedOps = extractProtovalidateRepeatedRules(field.options);
+    if (protovalidateRepeatedOps) {
+      return {
+        kind: 'repeated',
+        ops: protovalidateRepeatedOps,
+        fieldPath,
+        fieldType,
+        source: 'protovalidate',
+      };
+    }
+  }
+
+  const protovalidateRequiredOps = extractProtovalidateRequiredRule(field.options);
+  if (protovalidateRequiredOps) {
+    return {
+      kind: 'presence',
+      ops: protovalidateRequiredOps,
+      fieldPath,
+      fieldType,
+      source: 'protovalidate',
+    };
+  }
+
+  // Fall back to PGV validation
   // 1) String rules directly on field (including flattened/nested forms)
   const strOps = extractStringRulesFromFlat(field.options);
   if (strOps) {
@@ -164,9 +369,6 @@ export function extractFieldRules(field: protobuf.Field): FieldConstraint | null
     };
   }
 
-  const numberTypes = ['int32', 'int64', 'uint32', 'uint64', 'sint32', 'sint64', 
-                       'fixed32', 'fixed64', 'sfixed32', 'sfixed64', 'float', 'double'];
-  
   if (numberTypes.includes(fieldType)) {
     const numOps = extractNumberRulesFromFlat(field.options, fieldType);
     if (numOps) {
@@ -270,6 +472,22 @@ export function extractFieldRules(field: protobuf.Field): FieldConstraint | null
       fieldPath,
       fieldType,
       source: 'pgv',
+    };
+  }
+
+  const celConstraint = extractCelExpression(field.options);
+  if (celConstraint) {
+    return celConstraint;
+  }
+
+  const enumOps = extractEnumRules(field.options);
+  if (enumOps) {
+    return {
+      kind: 'enum',
+      ops: enumOps,
+      fieldPath,
+      fieldType,
+      source: 'protovalidate',
     };
   }
 

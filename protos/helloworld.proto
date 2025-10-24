@@ -5,6 +5,10 @@ import "validate/validate.proto";
 
 service Greeter {
   rpc SayHello (HelloRequest) returns (HelloReply);
+  rpc ValidateString (ValidationStringRequest) returns (HelloReply);
+  rpc ValidateNumber (ValidationNumberRequest) returns (HelloReply);
+  rpc ValidateRepeated (ValidationRepeatedRequest) returns (HelloReply);
+  rpc ValidateMessage (ValidationMessageRequest) returns (HelloReply);
   rpc UploadHello (stream HelloRequest) returns (HelloReply);
   rpc ChatHello (stream HelloRequest) returns (stream HelloReply);
 }
@@ -26,4 +30,63 @@ message HelloRequest {
 
 message HelloReply {
   string message = 1;
+}
+
+// String validation test message
+message ValidationStringRequest {
+  string min_len_field = 1 [(validate.rules).string.min_len = 5];
+  string max_len_field = 2 [(validate.rules).string.max_len = 10];
+  string pattern_field = 3 [(validate.rules).string.pattern = "^[A-Z0-9]{3,6}$"];
+  string email_field = 4 [(validate.rules).string.email = true];
+  string uuid_field = 5 [(validate.rules).string.uuid = true];
+  string hostname_field = 6 [(validate.rules).string.hostname = true];
+  string ipv4_field = 7 [(validate.rules).string.ipv4 = true];
+  string ipv6_field = 8 [(validate.rules).string.ipv6 = true];
+  string uri_field = 9 [(validate.rules).string.uri = true];
+  string prefix_field = 10 [(validate.rules).string.prefix = "TEST_"];
+  string suffix_field = 11 [(validate.rules).string.suffix = "_END"];
+  string contains_field = 12 [(validate.rules).string.contains = "valid"];
+  string not_contains_field = 13 [(validate.rules).string.not_contains = "invalid"];
+  repeated string in_field = 14 [(validate.rules).string = {
+    in: ["red", "green", "blue"]
+  }];
+  repeated string not_in_field = 15 [(validate.rules).string = {
+    not_in: ["forbidden", "blocked"]
+  }];
+}
+
+// Number validation test message
+message ValidationNumberRequest {
+  int32 const_field = 1 [(validate.rules).int32.const = 42];
+  int32 gt_field = 2 [(validate.rules).int32.gt = 0];
+  int32 gte_field = 3 [(validate.rules).int32.gte = 0];
+  int32 lt_field = 4 [(validate.rules).int32.lt = 100];
+  int32 lte_field = 5 [(validate.rules).int32.lte = 100];
+  repeated int32 in_field = 6 [(validate.rules).int32 = {
+    in: [1, 2, 3, 5, 8]
+  }];
+  repeated int32 not_in_field = 7 [(validate.rules).int32 = {
+    not_in: [0, -1, 999]
+  }];
+}
+
+// Repeated field validation test message
+message ValidationRepeatedRequest {
+  repeated string min_items = 1 [(validate.rules).repeated = { min_items: 2 }];
+  repeated string max_items = 2 [(validate.rules).repeated = { max_items: 5 }];
+  repeated string unique_items = 3 [(validate.rules).repeated = { unique: true }];
+  repeated string combined = 4 [(validate.rules).repeated = {
+    min_items: 1,
+    max_items: 3,
+    unique: true
+  }];
+}
+
+// Message field validation test message
+message ValidationMessageRequest {
+  NestedMessage required_msg = 1 [(validate.rules).message.required = true];
+}
+
+message NestedMessage {
+  string value = 1;
 }

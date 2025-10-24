@@ -1,10 +1,10 @@
 #!/usr/bin/env node
 import path from "path";
 import { fileURLToPath } from "url";
-import { loadProtos } from "../src/infrastructure/protoLoader.js";
-import { buildDescriptorInfo, getAllMessageTypes } from "../src/infrastructure/validation/descriptors.js";
-import { extractAllRules } from "../src/domain/validation/ruleExtractor.js";
-import { validate } from "../src/domain/validation/engine.js";
+import { loadProtos } from "../dist/infrastructure/protoLoader.js";
+import { buildDescriptorInfo, getAllMessageTypes } from "../dist/infrastructure/validation/descriptors.js";
+import { extractAllRules } from "../dist/domain/validation/ruleExtractor.js";
+import { validate } from "../dist/domain/validation/engine.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const rootDir = path.resolve(__dirname, "..");
@@ -73,10 +73,31 @@ try {
     }
   }
 
+  // Inspect raw options for inField/notInField to understand shapes
+  const vsType = protoRoot.lookupType('helloworld.ValidationStringRequest');
+  if (vsType) {
+    console.log("\n🔎 Inspecting ValidationStringRequest field options (raw):");
+    vsType.fieldsArray.forEach((f) => {
+      if (f.name.toLowerCase().includes('in')) {
+        console.log('  Field', f.name, 'repeated=', f.repeated, 'type=', f.type);
+        console.log('   Options keys:', f.options ? Object.keys(f.options) : []);
+        if (f.options) {
+          const o = f.options;
+          if (o['(validate.rules)']) console.log('   has (validate.rules)');
+          if (o['(validate.rules).string']) console.log('   has (validate.rules).string object');
+          if (o['(validate.rules).repeated']) console.log('   has (validate.rules).repeated object');
+          if (o['(validate.rules).string.in']) console.log('   has (validate.rules).string.in');
+        }
+      }
+    });
+  }
+
   console.log("\n4️⃣  PHASE 4: Test Validation Engine");
   console.log("-".repeat(60));
 
   const helloRequestIR = irMap.get("helloworld.HelloRequest");
+  const numIR = irMap.get("helloworld.ValidationNumberRequest");
+  const repIR = irMap.get("helloworld.ValidationRepeatedRequest");
   
   if (!helloRequestIR) {
     console.log("⚠️  HelloRequest IR not found. Skipping engine tests.");
@@ -87,22 +108,27 @@ try {
       {
         name: "Valid: name='Tom', age=25, email='user@example.com'",
         data: { name: "Tom", age: 25, email: "user@example.com" },
+        expectOk: true,
       },
       {
         name: "Invalid: name too short ('ab')",
         data: { name: "ab", age: 25, email: "user@example.com" },
+        expectOk: false,
       },
       {
         name: "Invalid: age too low (-1)",
         data: { name: "Tom", age: -1, email: "user@example.com" },
+        expectOk: false,
       },
       {
         name: "Invalid: age too high (151)",
         data: { name: "Tom", age: 151, email: "user@example.com" },
+        expectOk: false,
       },
       {
         name: "Invalid: bad email format",
         data: { name: "Tom", age: 25, email: "not-an-email" },
+        expectOk: false,
       },
     ];
 
@@ -112,20 +138,60 @@ try {
     testCases.forEach((testCase, idx) => {
       console.log(`  Test ${idx + 1}: ${testCase.name}`);
       const result = validate(helloRequestIR, testCase.data);
-      
-      if (result.ok) {
-        console.log(`    ✓ Validation passed`);
+      const pass = result.ok === !!testCase.expectOk;
+
+      if (pass) {
+        if (result.ok) {
+          console.log(`    ✓ Expected pass`);
+        } else {
+          console.log(`    ✓ Expected fail`);
+          if (result.violations?.length) {
+            result.violations.forEach((v) => {
+              console.log(`       - ${v.field}: ${v.rule} (${v.description})`);
+            });
+          }
+        }
         validationTestsPassed++;
       } else {
-        console.log(`    ✗ Validation failed:`);
-        result.violations.forEach((v) => {
-          console.log(`       - ${v.field}: ${v.rule} (${v.description})`);
-        });
+        if (result.ok) {
+          console.log(`    ✗ Unexpected pass (should fail)`);
+        } else {
+          console.log(`    ✗ Unexpected fail (should pass):`);
+          result.violations.forEach((v) => {
+            console.log(`       - ${v.field}: ${v.rule} (${v.description})`);
+          });
+        }
         validationTestsFailed++;
       }
     });
 
-    console.log(`\n  Summary: ${validationTestsPassed} passed, ${validationTestsFailed} failed`);
+    console.log(`\n  Summary: ${validationTestsPassed} passed (expected), ${validationTestsFailed} failed (unexpected)`);
+  }
+
+  if (numIR) {
+    console.log("\nTesting ValidationNumberRequest (gt/gte):\n");
+    const cases = [
+      { name: 'gt valid (1 > 0)', data: { gtField: 1 } },
+      { name: 'gt invalid (0 !> 0)', data: { gtField: 0 } },
+      { name: 'gte valid (0 >= 0)', data: { gteField: 0 } },
+      { name: 'gte invalid (-1 < 0)', data: { gteField: -1 } },
+    ];
+    for (const c of cases) {
+      const r = validate(numIR, c.data);
+      console.log(' ', c.name, '=>', r.ok ? 'OK' : 'ERR', r.ok ? '' : JSON.stringify(r.violations));
+    }
+  }
+
+  if (repIR) {
+    console.log("\nTesting ValidationRepeatedRequest (min_items/unique):\n");
+    const cases = [
+      { name: 'min_items valid (2)', data: { minItems: ['a','b'] } },
+      { name: 'unique valid', data: { uniqueItems: ['a','b','c'] } },
+    ];
+    for (const c of cases) {
+      const r = validate(repIR, c.data);
+      console.log(' ', c.name, '=>', r.ok ? 'OK' : 'ERR', r.ok ? '' : JSON.stringify(r.violations));
+    }
   }
 
   console.log("\n5️⃣  PHASE 5: Environment Check");

@@ -43,7 +43,6 @@ class ValidationRuntime {
     const t = typeFullName.startsWith('.') ? typeFullName.slice(1) : typeFullName;
     return this.validators.get(t);
   }
-
   getTypesWithRules(): string[] { return Array.from(this.irByType.keys()); }
 }
 

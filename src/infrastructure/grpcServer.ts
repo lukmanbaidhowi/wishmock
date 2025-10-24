@@ -7,7 +7,7 @@ import wrapServerWithReflection from "./reflection.js";
 import protobuf from "protobufjs";
 import type { RuleDoc } from "../domain/types.js";
 import { metadataToRecord, buildStreamRequest, respondUnary, handleStreamingResponses } from "./grpcHandlerUtils.js";
-import { runtime as validationRuntime } from "./validation/runtime.js";
+import { runtime as validationRuntime } from "./validation/runtime.js"; // validation runtime for constraint checking
 import { makeInvalidArgError } from "../domain/validation/errors.js";
 
 type RulesIndex = Map<string, RuleDoc>;
@@ -68,7 +68,8 @@ export function buildHandlersFromRoot(rootNamespace: protobuf.Root, rulesIndex: 
             // Validation (unary request)
             try {
               if (validationRuntime.isEnabled()) {
-                const validator = validationRuntime.getValidator(reqType.fullName || reqType.name);
+                const typeKey = reqType.fullName || reqType.name;
+                const validator = validationRuntime.getValidator(typeKey);
                 if (validator) {
                   const result = validator(reqObj);
                   if (!result.ok) {

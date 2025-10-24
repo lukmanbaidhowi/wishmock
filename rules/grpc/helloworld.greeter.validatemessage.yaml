@@ -1,0 +1,8 @@
+service: helloworld.Greeter
+method: ValidateMessage
+rules:
+  - matcher:
+      type: always
+    selector: default
+    response:
+      message: "Message validation constraints passed!"

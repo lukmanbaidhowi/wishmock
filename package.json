@@ -59,6 +59,7 @@
     "test:examples:import-proto": "bash scripts/test-examples-import-proto.sh",
     "validation:debug": "bun scripts/debug-validation.mjs",
     "validation:test": "bash scripts/test-validation-e2e.sh",
+    "validation:comprehensive": "bash scripts/test-validation-comprehensive.sh",
     "prepublishOnly": "tsc -p tsconfig.json"
   }
 }

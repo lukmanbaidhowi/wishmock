@@ -315,8 +315,12 @@ function validateRepeated(
 ): FieldViolation[] {
   const violations: FieldViolation[] = [];
 
+  // If the field is absent, skip repeated validations (treat as empty)
+  if (value === undefined || value === null) {
+    return violations;
+  }
+
   if (!Array.isArray(value)) {
-    if (ops.ignore_empty && (value === undefined || value === null)) return violations;
     violations.push({
       field: fieldPath,
       description: "value must be an array",
@@ -391,12 +395,35 @@ function validateField(
   message: any,
   constraint: FieldConstraint
 ): FieldViolation[] {
-  const value = message[constraint.fieldPath];
+  // Prefer the fieldPath as stored (protobufjs often uses camelCase for names),
+  // then try a snake_case variant to match proto-loader keepCase=true objects.
+  const toSnake = (s: string) => s.replace(/[A-Z]/g, (c) => `_${c.toLowerCase()}`);
+  let value = message[constraint.fieldPath];
+  if (value === undefined) {
+    const snake = toSnake(constraint.fieldPath);
+    value = message[snake];
+  }
 
   switch (constraint.kind) {
     case "string":
+      if (Array.isArray(value)) {
+        const ops = constraint.ops as StringConstraintOps;
+        const all: FieldViolation[] = [];
+        value.forEach((elem, idx) => {
+          all.push(...validateString(elem, ops, `${constraint.fieldPath}[${idx}]`));
+        });
+        return all;
+      }
       return validateString(value, constraint.ops as StringConstraintOps, constraint.fieldPath);
     case "number":
+      if (Array.isArray(value)) {
+        const ops = constraint.ops as NumberConstraintOps;
+        const all: FieldViolation[] = [];
+        value.forEach((elem, idx) => {
+          all.push(...validateNumber(elem, ops, `${constraint.fieldPath}[${idx}]`));
+        });
+        return all;
+      }
       return validateNumber(value, constraint.ops as NumberConstraintOps, constraint.fieldPath);
     case "repeated":
       return validateRepeated(value, constraint.ops as RepeatedConstraintOps, constraint.fieldPath);
@@ -434,4 +461,3 @@ export function validate(ir: ValidationIR, message: unknown): ValidationResult {
 
   return { ok: true };
 }
-

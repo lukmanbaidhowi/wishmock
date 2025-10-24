@@ -5,6 +5,7 @@ set -euo pipefail
 # - Starts the mock server (Bun if available, else Node)
 # - Waits for /readiness
 # - Executes grpcurl calls (plaintext); optional TLS tests if enabled
+# - Optionally runs comprehensive validation tests
 # - Prints outputs and exits
 #
 # Env overrides:
@@ -21,6 +22,7 @@ set -euo pipefail
 #   GRPC_TLS_REQUIRE_CLIENT_CERT (true|false; for mTLS; default off unless set)
 #   GRPC_TLS_CLIENT_CERT_PATH (default: certs/client.crt)
 #   GRPC_TLS_CLIENT_KEY_PATH  (default: certs/client.key)
+#   VALIDATION_TESTS          (true|false, default: false; run comprehensive validation tests)
 
 have() { command -v "$1" >/dev/null 2>&1; }
 
@@ -28,6 +30,7 @@ HTTP_PORT="${HTTP_PORT:-3000}"
 GRPC_PORT="${GRPC_PORT_PLAINTEXT:-50050}"
 TIMEOUT="${TIMEOUT:-30}"
 TLS_TESTS="${TLS_TESTS:-false}"
+VALIDATION_TESTS="${VALIDATION_TESTS:-false}"
 
 if ! have grpcurl; then
   echo "ERROR: grpcurl not found in PATH" >&2
@@ -84,6 +87,13 @@ if [[ "$TLS_TESTS" == "true" ]]; then
   echo "TLS tests enabled (port=${GRPC_PORT_TLS}, cert=${GRPC_TLS_CERT_PATH})" | tee -a "$LOG_FILE"
 fi
 
+# Enable validation if VALIDATION_TESTS is requested (must be before server start)
+if [[ "$VALIDATION_TESTS" == "true" ]]; then
+  export VALIDATION_ENABLED="true"
+  export VALIDATION_SOURCE="auto"
+  export VALIDATION_MODE="per_message"
+fi
+
 "${START_CMD[@]}" >>"$LOG_FILE" 2>&1 &
 SERVER_PID=$!
 trap 'kill $SERVER_PID >/dev/null 2>&1 || true' EXIT
@@ -126,61 +136,172 @@ run_call() {
   echo
 }
 
-# Plaintext README examples
-run_call "SayHello plaintext" \
-  grpcurl -plaintext -d '{"name":"Tom"}' "localhost:${GRPC_PORT}" helloworld.Greeter/SayHello
+# Common flags to use local proto files (no reflection needed)
+PROTO_FLAGS=( -import-path protos )
 
-run_call "Calendar err-unauth" \
-  grpcurl -plaintext -d '{"id":"err-unauth"}' "localhost:${GRPC_PORT}" calendar.Events/GetEvent
+# Plaintext README examples (explicit -proto files)
+run_call "SayHello plaintext (import proto)" \
+  grpcurl "${PROTO_FLAGS[@]}" -proto helloworld.proto -plaintext -d '{"name":"Tom"}' "localhost:${GRPC_PORT}" helloworld.Greeter/SayHello
 
-run_call "Calendar err-forbidden" \
-  grpcurl -plaintext -d '{"id":"err-forbidden"}' "localhost:${GRPC_PORT}" calendar.Events/GetEvent
+run_call "Calendar err-unauth (import proto)" \
+  grpcurl "${PROTO_FLAGS[@]}" -proto calendar.proto -plaintext -d '{"id":"err-unauth"}' "localhost:${GRPC_PORT}" calendar.Events/GetEvent
 
-run_call "Calendar err-unavailable" \
-  grpcurl -plaintext -d '{"id":"err-unavailable"}' "localhost:${GRPC_PORT}" calendar.Events/GetEvent
+run_call "Calendar err-forbidden (import proto)" \
+  grpcurl "${PROTO_FLAGS[@]}" -proto calendar.proto -plaintext -d '{"id":"err-forbidden"}' "localhost:${GRPC_PORT}" calendar.Events/GetEvent
 
-run_call "Calendar err-deadline" \
-  grpcurl -plaintext -d '{"id":"err-deadline"}' "localhost:${GRPC_PORT}" calendar.Events/GetEvent
+run_call "Calendar err-unavailable (import proto)" \
+  grpcurl "${PROTO_FLAGS[@]}" -proto calendar.proto -plaintext -d '{"id":"err-unavailable"}' "localhost:${GRPC_PORT}" calendar.Events/GetEvent
 
-# A success case for Calendar (not in README bullets, but useful)
-run_call "Calendar success (next)" \
-  grpcurl -plaintext -d '{"id":"next"}' "localhost:${GRPC_PORT}" calendar.Events/GetEvent
+run_call "Calendar err-deadline (import proto)" \
+  grpcurl "${PROTO_FLAGS[@]}" -proto calendar.proto -plaintext -d '{"id":"err-deadline"}' "localhost:${GRPC_PORT}" calendar.Events/GetEvent
 
-# Reflection tests for services in protos/ that import from imports/
-run_call "RelService describe (reflection)" \
-  grpcurl -plaintext "localhost:${GRPC_PORT}" describe rel.RelService
+# A success case for Calendar
+run_call "Calendar success (next, import proto)" \
+  grpcurl "${PROTO_FLAGS[@]}" -proto calendar.proto -plaintext -d '{"id":"next"}' "localhost:${GRPC_PORT}" calendar.Events/GetEvent
 
-run_call "AbsService describe (reflection)" \
-  grpcurl -plaintext "localhost:${GRPC_PORT}" describe abs.AbsService
+# Explicit proto imports for services in protos/ that import from imports/
+run_call "RelService describe (import proto)" \
+  grpcurl "${PROTO_FLAGS[@]}" -proto rel_service.proto -plaintext "localhost:${GRPC_PORT}" describe rel.RelService
 
-run_call "RelService DoRel (reflection)" \
-  grpcurl -plaintext -d '{"msg":{"note":"hi"}}' "localhost:${GRPC_PORT}" rel.RelService/DoRel
+run_call "AbsService describe (import proto)" \
+  grpcurl "${PROTO_FLAGS[@]}" -proto abs_service.proto -plaintext "localhost:${GRPC_PORT}" describe abs.AbsService
 
-run_call "AbsService DoAbs (reflection)" \
-  grpcurl -plaintext -d '{"msg":{"note":"hi"}}' "localhost:${GRPC_PORT}" abs.AbsService/DoAbs
+run_call "RelService DoRel (import proto)" \
+  grpcurl "${PROTO_FLAGS[@]}" -proto rel_service.proto -plaintext -d '{"msg":{"note":"hi"}}' "localhost:${GRPC_PORT}" rel.RelService/DoRel
 
-# Streaming RPC samples
-run_call "UploadHello client stream" \
+run_call "AbsService DoAbs (import proto)" \
+  grpcurl "${PROTO_FLAGS[@]}" -proto abs_service.proto -plaintext -d '{"msg":{"note":"hi"}}' "localhost:${GRPC_PORT}" abs.AbsService/DoAbs
+
+# Streaming RPC samples with explicit protos
+run_call "UploadHello client stream (import proto)" \
   sh -c "printf '%s\\n%s\\n' '{\"name\":\"Alice\"}' '{\"name\":\"Bob\"}' | \\
-    grpcurl -plaintext -d @ \"localhost:${GRPC_PORT}\" helloworld.Greeter/UploadHello"
+    grpcurl -import-path protos -proto helloworld.proto -plaintext -d @ \"localhost:${GRPC_PORT}\" helloworld.Greeter/UploadHello"
 
-run_call "ChatHello bidi stream" \
+run_call "ChatHello bidi stream (import proto)" \
   sh -c "printf '%s\\n%s\\n' '{\"name\":\"Alice\"}' '{\"name\":\"Bob\"}' | \\
-    grpcurl -plaintext -d @ \"localhost:${GRPC_PORT}\" helloworld.Greeter/ChatHello"
+    grpcurl -import-path protos -proto helloworld.proto -plaintext -d @ \"localhost:${GRPC_PORT}\" helloworld.Greeter/ChatHello"
 
 # Optional TLS tests
 if [[ "$TLS_TESTS" == "true" ]]; then
   sleep 0.5
-  run_call "TLS hello (server-auth)" \
-    grpcurl -d '{"name":"Tom"}' -cacert "${GRPC_TLS_CA_PATH}" "localhost:${GRPC_PORT_TLS}" helloworld.Greeter/SayHello
+  run_call "TLS hello (server-auth, import proto)" \
+    grpcurl "${PROTO_FLAGS[@]}" -proto helloworld.proto -d '{"name":"Tom"}' -cacert "${GRPC_TLS_CA_PATH}" "localhost:${GRPC_PORT_TLS}" helloworld.Greeter/SayHello
 
   if [[ "${GRPC_TLS_REQUIRE_CLIENT_CERT:-}" == "true" ]]; then
-    run_call "mTLS hello (client-auth)" \
-      grpcurl -d '{"name":"Tom"}' -cacert "${GRPC_TLS_CA_PATH}" \
+    run_call "mTLS hello (client-auth, import proto)" \
+      grpcurl "${PROTO_FLAGS[@]}" -proto helloworld.proto -d '{"name":"Tom"}' -cacert "${GRPC_TLS_CA_PATH}" \
         -cert "${GRPC_TLS_CLIENT_CERT_PATH:-certs/client.crt}" \
         -key  "${GRPC_TLS_CLIENT_KEY_PATH:-certs/client.key}" \
         "localhost:${GRPC_PORT_TLS}" helloworld.Greeter/SayHello
   fi
+fi
+
+# ============================================================
+# OPTIONAL: COMPREHENSIVE VALIDATION TESTS
+# ============================================================
+
+if [[ "$VALIDATION_TESTS" == "true" ]]; then
+  echo ""
+  echo "======================================================"
+  echo "Running Comprehensive Validation Tests"
+  echo "======================================================"
+  echo ""
+  
+  # Enable validation for this test run
+  # export VALIDATION_ENABLED="true" # This line is now moved before the server starts
+  # export VALIDATION_SOURCE="auto"
+  # export VALIDATION_MODE="per_message"
+  
+  VALIDATION_RESULTS="/tmp/validation.comprehensive.results"
+  VALIDATION_LOG="/tmp/validation.comprehensive.out"
+  rm -f "$VALIDATION_RESULTS" "$VALIDATION_LOG"
+  
+  # Run comprehensive validation tests using the running server
+  # Note: We reuse the running server instead of starting a new one
+  
+  TOTAL_TESTS=0
+  PASSED_TESTS=0
+  FAILED_TESTS=0
+  
+  run_validation_test() {
+    local test_name="$1"
+    local service_method="$2"
+    local json_data="$3"
+    local expect_status="$4"
+    
+    TOTAL_TESTS=$((TOTAL_TESTS + 1))
+    
+    set +e
+    local output
+    output=$(grpcurl -plaintext -d "$json_data" "localhost:${GRPC_PORT}" "$service_method" 2>&1)
+    local exit_code=$?
+    set -e
+    
+    local is_error=false
+    if [[ $exit_code -ne 0 ]] || echo "$output" | grep -q "ERROR:"; then
+      is_error=true
+    fi
+    
+    if [[ "$expect_status" == "invalid" ]] && [[ "$is_error" == "true" ]]; then
+      PASSED_TESTS=$((PASSED_TESTS + 1))
+      echo "  ✓ $test_name"
+    elif [[ "$expect_status" == "valid" ]] && [[ "$is_error" == "false" ]]; then
+      PASSED_TESTS=$((PASSED_TESTS + 1))
+      echo "  ✓ $test_name"
+    else
+      FAILED_TESTS=$((FAILED_TESTS + 1))
+      echo "  ✗ $test_name"
+    fi
+  }
+  
+  echo "STRING VALIDATION TESTS"
+  run_validation_test "String: valid min_len" "helloworld.Greeter/ValidateString" '{"minLenField":"hello"}' "valid"
+  run_validation_test "String: invalid min_len" "helloworld.Greeter/ValidateString" '{"minLenField":"test"}' "invalid"
+  run_validation_test "String: valid max_len" "helloworld.Greeter/ValidateString" '{"maxLenField":"1234567890"}' "valid"
+  run_validation_test "String: invalid max_len" "helloworld.Greeter/ValidateString" '{"maxLenField":"12345678901"}' "invalid"
+  run_validation_test "String: valid pattern" "helloworld.Greeter/ValidateString" '{"patternField":"ABC123"}' "valid"
+  run_validation_test "String: invalid pattern" "helloworld.Greeter/ValidateString" '{"patternField":"abc123"}' "invalid"
+  run_validation_test "String: valid email" "helloworld.Greeter/ValidateString" '{"emailField":"user@example.com"}' "valid"
+  run_validation_test "String: invalid email" "helloworld.Greeter/ValidateString" '{"emailField":"notanemail"}' "invalid"
+  run_validation_test "String: valid uuid" "helloworld.Greeter/ValidateString" '{"uuidField":"550e8400-e29b-41d4-a716-446655440000"}' "valid"
+  run_validation_test "String: invalid uuid" "helloworld.Greeter/ValidateString" '{"uuidField":"not-a-uuid"}' "invalid"
+  
+  echo ""
+  echo "NUMBER VALIDATION TESTS"
+  run_validation_test "Number: valid const" "helloworld.Greeter/ValidateNumber" '{"constField":42}' "valid"
+  run_validation_test "Number: invalid const" "helloworld.Greeter/ValidateNumber" '{"constField":41}' "invalid"
+  run_validation_test "Number: valid gt" "helloworld.Greeter/ValidateNumber" '{"gtField":1}' "valid"
+  # Use a non-default value to ensure the field is present on the wire
+  run_validation_test "Number: invalid gt" "helloworld.Greeter/ValidateNumber" '{"gtField":-1}' "invalid"
+  run_validation_test "Number: valid gte" "helloworld.Greeter/ValidateNumber" '{"gteField":0}' "valid"
+  run_validation_test "Number: invalid gte" "helloworld.Greeter/ValidateNumber" '{"gteField":-1}' "invalid"
+  
+  echo ""
+  echo "REPEATED VALIDATION TESTS"
+  run_validation_test "Repeated: valid min_items" "helloworld.Greeter/ValidateRepeated" '{"minItems":["a","b"]}' "valid"
+  run_validation_test "Repeated: invalid min_items" "helloworld.Greeter/ValidateRepeated" '{"minItems":["a"]}' "invalid"
+  run_validation_test "Repeated: valid unique" "helloworld.Greeter/ValidateRepeated" '{"uniqueItems":["a","b","c"]}' "valid"
+  run_validation_test "Repeated: invalid unique" "helloworld.Greeter/ValidateRepeated" '{"uniqueItems":["a","b","a"]}' "invalid"
+  
+  echo ""
+  echo "MESSAGE VALIDATION TESTS"
+  run_validation_test "Message: valid required" "helloworld.Greeter/ValidateMessage" '{"requiredMsg":{"value":"test"}}' "valid"
+  run_validation_test "Message: invalid required" "helloworld.Greeter/ValidateMessage" '{}' "invalid"
+  
+  echo ""
+  echo "======================================================"
+  echo "VALIDATION TEST SUMMARY"
+  echo "======================================================"
+  echo "Total Tests: $TOTAL_TESTS"
+  echo "Passed: $PASSED_TESTS ✓"
+  echo "Failed: $FAILED_TESTS ✗"
+  
+  if [[ $FAILED_TESTS -eq 0 ]]; then
+    echo "Status: ALL VALIDATION TESTS PASSED 🎉"
+  else
+    echo "Status: SOME VALIDATION TESTS FAILED"
+  fi
+  echo ""
 fi
 
 echo "Done. Server logs: $LOG_FILE"

@@ -82,6 +82,7 @@ export interface FieldConstraint {
 export interface ValidationIR {
   typeName: string;
   fields: Map<string, FieldConstraint>;
+  oneofs?: OneofConstraint[];
 }
 
 export interface FieldViolation {
@@ -105,3 +106,9 @@ export interface ValidationConfig {
   mode: ValidationMode;
 }
 
+export interface OneofConstraint {
+  name: string;
+  fields: string[];
+  required?: boolean;
+  source?: 'pgv' | 'protovalidate' | 'proto';
+}

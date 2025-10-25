@@ -9,6 +9,7 @@ import type {
   PresenceConstraintOps,
   EnumConstraintOps,
 } from "./types.js";
+import type { OneofConstraint } from "./types.js";
 
 const regexCache = new Map<string, RegExp>();
 
@@ -538,6 +539,38 @@ export function validate(ir: ValidationIR, message: unknown): ValidationResult {
   for (const [fieldName, constraint] of ir.fields) {
     const fieldViolations = validateField(message, constraint);
     violations.push(...fieldViolations);
+  }
+
+  // Oneof group validation (proto semantics + optional required annotation)
+  if (ir.oneofs && ir.oneofs.length > 0) {
+    const obj = message as any;
+    const toSnake = (s: string) => s.replace(/[A-Z]/g, (c) => `_${c.toLowerCase()}`);
+    const hasField = (o: any, name: string) => {
+      if (name in o) return o[name] !== undefined && o[name] !== null;
+      const snake = toSnake(name);
+      if (snake in o) return o[snake] !== undefined && o[snake] !== null;
+      return false;
+    };
+
+    for (const grp of ir.oneofs) {
+      const present: string[] = [];
+      for (const f of grp.fields) {
+        if (hasField(obj, f)) present.push(f);
+      }
+      if (present.length > 1) {
+        violations.push({
+          field: "",
+          description: `oneof group "${grp.name}" has multiple fields set: ${present.join(", ")}`,
+          rule: "oneof_multiple",
+        });
+      } else if ((grp.required === true) && present.length === 0) {
+        violations.push({
+          field: "",
+          description: `oneof group "${grp.name}" must have exactly one field set`,
+          rule: "oneof_required",
+        });
+      }
+    }
   }
 
   if (violations.length > 0) {

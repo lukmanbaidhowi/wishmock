@@ -642,20 +642,20 @@ echo "" | tee -a "$RESULTS_FILE"
 echo "========== CEL EXPRESSION VALIDATION TESTS ==========" | tee -a "$RESULTS_FILE"
 echo "" | tee -a "$RESULTS_FILE"
 
-# CEL age validation tests (>= 18)
+# CEL age validation tests (>= 18 using CelValidationRequest)
 run_validation_test \
   "CEL: valid age (25)" \
-  "helloworld.Greeter/SayHello" \
-  '{"name":"user_25"}' \
+  "helloworld.Greeter/ValidateCel" \
+  '{"age":25}' \
   "valid" \
-  "CEL: Age >= 18 should pass (used in custom validation context)"
+  "CEL: Age >= 18 should pass"
 
 run_validation_test \
-  "CEL: complex message validation" \
-  "helloworld.Greeter/SayHello" \
-  '{"name":"test_user"}' \
-  "valid" \
-  "CEL: Message with valid constraints should pass"
+  "CEL: invalid age (16)" \
+  "helloworld.Greeter/ValidateCel" \
+  '{"age":16}' \
+  "invalid" \
+  "CEL: Age < 18 should fail"
 
 # ============================================================
 # ENUM VALIDATION TESTS  

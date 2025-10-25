@@ -9,6 +9,7 @@ import type {
   PresenceConstraintOps,
   EnumConstraintOps,
 } from "./types.js";
+import type { OneofConstraint } from "./types.js";
 
 // Note: We keep proto field names as-is (snake_case) because
 // proto-loader is configured with keepCase=true, so deserialized
@@ -497,6 +498,7 @@ export function extractFieldRules(field: protobuf.Field): FieldConstraint | null
 export function extractMessageRules(messageType: protobuf.Type): ValidationIR {
   const typeName = messageType.fullName?.replace(/^\./, "") || messageType.name;
   const fields = new Map<string, FieldConstraint>();
+  const oneofs: OneofConstraint[] = [];
 
   for (const field of messageType.fieldsArray) {
     const constraint = extractFieldRules(field);
@@ -505,9 +507,42 @@ export function extractMessageRules(messageType: protobuf.Type): ValidationIR {
     }
   }
 
+  // Oneof groups: enforce proto semantics (at most one set) and required if annotated
+  if (messageType.oneofs) {
+    for (const [groupName, group] of Object.entries(messageType.oneofs)) {
+      const oneofFields: string[] = (group as any).oneof || [];
+
+      // Skip synthetic oneofs created for proto3 optional (single member with proto3_optional)
+      const isSynthetic = (() => {
+        if (oneofFields.length !== 1) return false;
+        const f = messageType.fields[oneofFields[0]];
+        const opt = (f && f.options) || {} as any;
+        return Boolean(opt && opt.proto3_optional);
+      })();
+      if (isSynthetic) continue;
+
+      // Detect required annotation from PGV / Protovalidate if present
+      const opts = ((group as any).options || {}) as Record<string, any>;
+      let required = false;
+      let source: 'pgv' | 'protovalidate' | 'proto' = 'proto';
+      if (opts["(validate.required)"] === true) {
+        required = true;
+        source = 'pgv';
+      }
+      // Best-effort support for protovalidate oneof annotations if available
+      if (opts["(buf.validate.oneof).required"] === true) {
+        required = true;
+        source = 'protovalidate';
+      }
+
+      oneofs.push({ name: groupName, fields: oneofFields.slice(), required, source });
+    }
+  }
+
   return {
     typeName,
     fields,
+    oneofs: oneofs.length > 0 ? oneofs : undefined,
   };
 }
 
@@ -518,7 +553,7 @@ export function extractAllRules(
 
   for (const [typeName, messageType] of messages) {
     const ir = extractMessageRules(messageType);
-    if (ir.fields.size > 0) {
+    if (ir.fields.size > 0 || (ir.oneofs && ir.oneofs.length > 0)) {
       irMap.set(typeName, ir);
     }
   }

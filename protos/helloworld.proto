@@ -10,8 +10,10 @@ service Greeter {
   rpc ValidateNumber (ValidationNumberRequest) returns (HelloReply);
   rpc ValidateRepeated (ValidationRepeatedRequest) returns (HelloReply);
   rpc ValidateMessage (ValidationMessageRequest) returns (HelloReply);
+  rpc ValidateCel (CelValidationRequest) returns (HelloReply);
   rpc UploadHello (stream HelloRequest) returns (HelloReply);
   rpc ChatHello (stream HelloRequest) returns (stream HelloReply);
+  rpc ValidateOneof (OneofValidationRequest) returns (HelloReply);
 }
 
 message HelloRequest {
@@ -167,4 +169,20 @@ message EnumValidationRequest {
       in: [1, 2, 3]
     }
   ];
+}
+
+// Oneof validation examples
+message OneofValidationRequest {
+  // Proto semantics: at most one may be set
+  oneof contact {
+    string email = 1;
+    string phone = 2;
+  }
+
+  // PGV required: exactly one must be set
+  oneof contact_req {
+    option (validate.required) = true;
+    string email_req = 3;
+    string phone_req = 4;
+  }
 }

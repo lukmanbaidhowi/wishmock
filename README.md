@@ -27,6 +27,7 @@ The project ships with MCP servers, a multi-stage Docker build (now including Ty
 - [Error Simulation (gRPC Status)](#error-simulation-grpc-status)
 - [Health Checks](#health-checks)
 - [Validation](#validation)
+  - [Oneof Validation](#oneof-validation)
 - [Testing](#testing)
 - [Server Streaming Support](#server-streaming-support)
   - [Stream Configuration](#stream-configuration)
@@ -130,7 +131,7 @@ Common variables:
 - MCP (optional): `ENABLE_MCP`, `ENABLE_MCP_SSE`, `MCP_HTTP_HOST`, `MCP_HTTP_PORT`, `MCP_TRANSPORT`
  - Validation (optional):
    - `VALIDATION_ENABLED` — enable request validation based on `.proto` annotations (default `false`)
-   - `VALIDATION_SOURCE` — `auto|pgv|buf` rule source selection (default `auto`)
+- `VALIDATION_SOURCE` — `auto|pgv|protovalidate` rule source selection (default `auto`)
    - `VALIDATION_MODE` — streaming mode `per_message|aggregate` (default `per_message`)
 
 ### Enable TLS locally with .env
@@ -455,16 +456,25 @@ grpcurl -import-path protos -proto calendar.proto -plaintext -d '{"id":"next"}' 
 
 ## Validation
 
-The validation engine supports both **PGV** (Protoc Gen Validate) and **Buf** validation frameworks.
+The validation engine supports both **PGV** (protoc-gen-validate) and **Protovalidate** (Buf) annotations, plus CEL expressions.
 
-- Enable request validation by setting `VALIDATION_ENABLED=true` in `.env`.
-- Choose validation source: `VALIDATION_SOURCE=auto|pgv|buf`.
-- Select validation mode: `VALIDATION_MODE=per_message|aggregate`.
-- Validation is applied to all requests, including streaming.
+- Enable request validation with `VALIDATION_ENABLED=true` in your environment.
+- Choose validation source: `VALIDATION_SOURCE=auto|pgv|protovalidate`.
+- Streaming mode: `VALIDATION_MODE=per_message|aggregate` (per-message by default).
+- Validation applies to unary and streaming requests.
 
-See the detailed documentation:
-- [PGV Validation Guide](./docs/pgv-validation.md) – Comprehensive reference for PGV rules
-- [Buf Validation Guide](./docs/buf-validation.md) – Buf validation constraints and CEL expressions
+Guides:
+- PGV: `docs/pgv-validation.md`
+- Protovalidate (Buf): `docs/protovalidate-validation.md`
+- Oneof: `docs/oneof-validation.md`
+
+### Oneof Validation
+
+- At‑most‑one: enforced by Protobuf (last‑wins). The validator includes a defensive check for “multiple set”, but standard clients will not surface this at runtime.
+- Exactly‑one (required): enforced by validator using PGV oneof option `(validate.required) = true`. Requests with zero set are rejected with `InvalidArgument` and a clear error message.
+- E2E limitation: “multiple set” cannot be reproduced via grpcurl or normal clients because marshalling/decoding collapses to the last field. See `docs/oneof-validation.md` for details.
+- Example RPC: `helloworld.Greeter/ValidateOneof`
+- Test script: `bash scripts/test-validation-oneof.sh`
 
 ## Testing
 - Run tests with Bun:

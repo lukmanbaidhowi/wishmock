@@ -18,7 +18,9 @@ class ValidationRuntime {
     const en = String(process.env.VALIDATION_ENABLED || '').toLowerCase();
     this.enabled = en === 'true' || en === '1';
     const src = String(process.env.VALIDATION_SOURCE || 'auto').toLowerCase();
-    if (src === 'pgv' || src === 'buf' || src === 'auto') this.source = src as ValidationSource;
+    // Accept 'protovalidate' (preferred) and map legacy 'buf' to 'protovalidate'
+    if (src === 'pgv' || src === 'protovalidate' || src === 'auto') this.source = src as ValidationSource;
+    else if (src === 'buf') this.source = 'protovalidate';
     const mode = String(process.env.VALIDATION_MODE || 'per_message').toLowerCase();
     if (mode === 'per_message' || mode === 'aggregate') this.modeSetting = mode as ValidationMode;
   }

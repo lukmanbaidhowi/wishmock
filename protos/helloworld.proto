@@ -100,35 +100,35 @@ message NestedMessage {
 
 // Buf validation test messages
 message BufValidationStringRequest {
-  string min_len_field = 1 [(buf.validate.field).string_val = {
+  string min_len_field = 1 [(buf.validate.field).string = {
     min_len: 5
   }];
-  string max_len_field = 2 [(buf.validate.field).string_val = {
+  string max_len_field = 2 [(buf.validate.field).string = {
     max_len: 10
   }];
-  string email_field = 3 [(buf.validate.field).string_val = {
+  string email_field = 3 [(buf.validate.field).string = {
     email: true
   }];
-  string ipv4_field = 4 [(buf.validate.field).string_val = {
+  string ipv4_field = 4 [(buf.validate.field).string = {
     ipv4: true
   }];
-  string pattern_field = 5 [(buf.validate.field).string_val = {
+  string pattern_field = 5 [(buf.validate.field).string = {
     pattern: "^[A-Z0-9]{3,6}$"
   }];
 }
 
 message BufValidationNumberRequest {
-  int32 const_field = 1 [(buf.validate.field).int_val = {
+  int32 const_field = 1 [(buf.validate.field).int32 = {
     const: 42
   }];
-  int32 range_field = 2 [(buf.validate.field).int_val = {
+  int32 range_field = 2 [(buf.validate.field).int32 = {
     gte: 0,
     lte: 100
   }];
 }
 
 message BufValidationRepeatedRequest {
-  repeated string items = 1 [(buf.validate.field).repeated_val = {
+  repeated string items = 1 [(buf.validate.field).repeated = {
     min_items: 1,
     max_items: 5
   }];
@@ -148,12 +148,12 @@ message CelValidationRequest {
 
 message CelRangeValidationRequest {
   int32 min_value = 1 [
-    (buf.validate.field).int_val = {
+    (buf.validate.field).int32 = {
       gte: 0
     }
   ];
   int32 max_value = 2 [
-    (buf.validate.field).int_val = {
+    (buf.validate.field).int32 = {
       gte: 0
     }
   ];
@@ -179,7 +179,7 @@ enum Status {
 
 message EnumValidationRequest {
   Status status = 1 [
-    (buf.validate.field).enum_val = {
+    (buf.validate.field).enum = {
       defined_only: true,
       in: [1, 2, 3]
     }

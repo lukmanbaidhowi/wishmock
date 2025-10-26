@@ -2,6 +2,12 @@
 
 This mock gRPC server supports **PGV (Protoc Gen Validate)** validation in addition to Buf validation.
 
+Enable with env:
+- `VALIDATION_ENABLED=true`
+- `VALIDATION_SOURCE=pgv` (PGV-only) or `auto` (Protovalidate preferred, PGV fallback)
+- Optional: `VALIDATION_MODE=per_message|aggregate` (default `per_message`)
+Note: Message-level CEL is gated globally via `VALIDATION_CEL_MESSAGE` and applies to Protovalidate only.
+
 ## Overview
 
 PGV allows you to define validation rules directly in your `.proto` files using the `validate.rules` extension. The validation engine automatically extracts and enforces these rules at runtime.
@@ -377,7 +383,10 @@ message OrderItem {
 | Repeated rules | `(validate.rules).repeated` | `(buf.validate.field).repeated_val` |
 | Status | Fully supported | Fully supported |
 
-If a field has both PGV and Buf annotations, **Buf takes precedence**.
+Source selection rules:
+- With `VALIDATION_SOURCE=pgv`, only PGV rules are enforced; Protovalidate rules are ignored.
+- With `VALIDATION_SOURCE=protovalidate`, only Protovalidate rules are enforced; PGV rules are ignored.
+- With `VALIDATION_SOURCE=auto` (default), Protovalidate takes precedence; if no Protovalidate rule is present, PGV is used as fallback.
 
 ## Error Messages
 

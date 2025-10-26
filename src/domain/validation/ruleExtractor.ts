@@ -10,6 +10,7 @@ import type {
   EnumConstraintOps,
 } from "./types.js";
 import type { OneofConstraint } from "./types.js";
+import type { ValidationSource } from "./types.js";
 
 // Note: We keep proto field names as-is (snake_case) because
 // proto-loader is configured with keepCase=true, so deserialized
@@ -299,14 +300,18 @@ function extractEnumRules(options: Record<string, any>): EnumConstraintOps | nul
   return foundAny ? ops : null;
 }
 
-export function extractFieldRules(field: protobuf.Field): FieldConstraint | null {
+export function extractFieldRules(field: protobuf.Field, source: ValidationSource = 'auto'): FieldConstraint | null {
   if (!field.options) return null;
 
   const fieldPath = field.name;
   const fieldType = field.type;
 
-  // Try Protovalidate validation first
-  const protovalidateStringOps = extractProtovalidateStringRules(field.options);
+  // Determine allowed sources
+  const allowProtovalidate = source === 'auto' || source === 'protovalidate';
+  const allowPGV = source === 'auto' || source === 'pgv';
+
+  // Try Protovalidate validation first (when allowed)
+  const protovalidateStringOps = allowProtovalidate ? extractProtovalidateStringRules(field.options) : null;
   if (protovalidateStringOps) {
     return {
       kind: 'string',
@@ -320,7 +325,7 @@ export function extractFieldRules(field: protobuf.Field): FieldConstraint | null
   const numberTypes = ['int32', 'int64', 'uint32', 'uint64', 'sint32', 'sint64', 
                        'fixed32', 'fixed64', 'sfixed32', 'sfixed64', 'float', 'double'];
   
-  if (numberTypes.includes(fieldType)) {
+  if (allowProtovalidate && numberTypes.includes(fieldType)) {
     const protovalidateNumberOps = extractProtovalidateNumberRules(field.options, fieldType);
     if (protovalidateNumberOps) {
       return {
@@ -333,7 +338,7 @@ export function extractFieldRules(field: protobuf.Field): FieldConstraint | null
     }
   }
 
-  if (field.repeated) {
+  if (allowProtovalidate && field.repeated) {
     const protovalidateRepeatedOps = extractProtovalidateRepeatedRules(field.options);
     if (protovalidateRepeatedOps) {
       return {
@@ -346,7 +351,7 @@ export function extractFieldRules(field: protobuf.Field): FieldConstraint | null
     }
   }
 
-  const protovalidateRequiredOps = extractProtovalidateRequiredRule(field.options);
+  const protovalidateRequiredOps = allowProtovalidate ? extractProtovalidateRequiredRule(field.options) : null;
   if (protovalidateRequiredOps) {
     return {
       kind: 'presence',
@@ -357,9 +362,9 @@ export function extractFieldRules(field: protobuf.Field): FieldConstraint | null
     };
   }
 
-  // Fall back to PGV validation
+  // Fall back to PGV validation (when allowed)
   // 1) String rules directly on field (including flattened/nested forms)
-  const strOps = extractStringRulesFromFlat(field.options);
+  const strOps = allowPGV ? extractStringRulesFromFlat(field.options) : null;
   if (strOps) {
     return {
       kind: 'string',
@@ -370,7 +375,7 @@ export function extractFieldRules(field: protobuf.Field): FieldConstraint | null
     };
   }
 
-  if (numberTypes.includes(fieldType)) {
+  if (allowPGV && numberTypes.includes(fieldType)) {
     const numOps = extractNumberRulesFromFlat(field.options, fieldType);
     if (numOps) {
       return {
@@ -383,7 +388,7 @@ export function extractFieldRules(field: protobuf.Field): FieldConstraint | null
     }
   }
 
-  if (field.repeated) {
+  if (allowPGV && field.repeated) {
     // 2) Element rules via repeated.items.* (if present)
     const repRoot = (field.options as any)["(validate.rules)"]?.repeated || (field.options as any)["(validate.rules).repeated"];
     const items = repRoot?.items;
@@ -464,8 +469,8 @@ export function extractFieldRules(field: protobuf.Field): FieldConstraint | null
     }
   }
 
-  const msgRequired = (field.options as any)["(validate.rules).message.required"] === true
-    || ((field.options as any)["(validate.rules)"] && (field.options as any)["(validate.rules)"].message && (field.options as any)["(validate.rules)"].message.required === true);
+  const msgRequired = allowPGV && ((field.options as any)["(validate.rules).message.required"] === true
+    || ((field.options as any)["(validate.rules)"] && (field.options as any)["(validate.rules)"].message && (field.options as any)["(validate.rules)"].message.required === true));
   if (msgRequired) {
     return {
       kind: 'presence',
@@ -476,12 +481,12 @@ export function extractFieldRules(field: protobuf.Field): FieldConstraint | null
     };
   }
 
-  const celConstraint = extractCelExpression(field.options);
+  const celConstraint = allowProtovalidate ? extractCelExpression(field.options) : null;
   if (celConstraint) {
     return celConstraint;
   }
 
-  const enumOps = extractEnumRules(field.options);
+  const enumOps = allowProtovalidate ? extractEnumRules(field.options) : null;
   if (enumOps) {
     return {
       kind: 'enum',
@@ -495,14 +500,14 @@ export function extractFieldRules(field: protobuf.Field): FieldConstraint | null
   return null;
 }
 
-export function extractMessageRules(messageType: protobuf.Type): ValidationIR {
+export function extractMessageRules(messageType: protobuf.Type, source: ValidationSource = 'auto'): ValidationIR {
   const typeName = messageType.fullName?.replace(/^\./, "") || messageType.name;
   const fields = new Map<string, FieldConstraint>();
   const oneofs: OneofConstraint[] = [];
   const messageLevel: { cel?: { expression: string; message?: string }[]; skip?: boolean; source?: 'pgv' | 'protovalidate' } = {};
 
   for (const field of messageType.fieldsArray) {
-    const constraint = extractFieldRules(field);
+    const constraint = extractFieldRules(field, source);
     if (constraint) {
       fields.set(field.name, constraint);
     }
@@ -571,12 +576,13 @@ export function extractMessageRules(messageType: protobuf.Type): ValidationIR {
 }
 
 export function extractAllRules(
-  messages: Map<string, protobuf.Type>
+  messages: Map<string, protobuf.Type>,
+  source: ValidationSource = 'auto',
 ): Map<string, ValidationIR> {
   const irMap = new Map<string, ValidationIR>();
 
   for (const [typeName, messageType] of messages) {
-    const ir = extractMessageRules(messageType);
+    const ir = extractMessageRules(messageType, source);
     if (ir.fields.size > 0 || (ir.oneofs && ir.oneofs.length > 0)) {
       irMap.set(typeName, ir);
     }

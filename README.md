@@ -27,6 +27,7 @@ The project ships with MCP servers, a multi-stage Docker build (now including Ty
 - [Error Simulation (gRPC Status)](#error-simulation-grpc-status)
 - [Health Checks](#health-checks)
 - [Validation](#validation)
+  - [Source Selection](#source-selection)
   - [Oneof Validation](#oneof-validation)
 - [Testing](#testing)
 - [Server Streaming Support](#server-streaming-support)
@@ -129,10 +130,11 @@ Common variables:
 - `GRPC_PORT_TLS` (default `50051`)
 - TLS/mTLS: `GRPC_TLS_ENABLED`, `GRPC_TLS_CERT_PATH`, `GRPC_TLS_KEY_PATH`, `GRPC_TLS_CA_PATH`, `GRPC_TLS_REQUIRE_CLIENT_CERT`
 - MCP (optional): `ENABLE_MCP`, `ENABLE_MCP_SSE`, `MCP_HTTP_HOST`, `MCP_HTTP_PORT`, `MCP_TRANSPORT`
- - Validation (optional):
-   - `VALIDATION_ENABLED` — enable request validation based on `.proto` annotations (default `false`)
-- `VALIDATION_SOURCE` — `auto|pgv|protovalidate` rule source selection (default `auto`)
-   - `VALIDATION_MODE` — streaming mode `per_message|aggregate` (default `per_message`)
+- Validation (optional):
+  - `VALIDATION_ENABLED` — enable request validation based on `.proto` annotations (default `false`)
+  - `VALIDATION_SOURCE` — `auto|pgv|protovalidate` rule source selection (default `auto`)
+  - `VALIDATION_MODE` — streaming mode `per_message|aggregate` (default `per_message`)
+  - `VALIDATION_CEL_MESSAGE` — gate message-level CEL enforcement: `experimental|off` (default `off`)
 
 ### Enable TLS locally with .env
 You can enable TLS for the local Bun run by providing certificate paths via environment variables. Place them in a dotenv file (for example `.env.tls`) and load it with Bun.
@@ -458,10 +460,28 @@ grpcurl -import-path protos -proto calendar.proto -plaintext -d '{"id":"next"}' 
 
 The validation engine supports both **PGV** (protoc-gen-validate) and **Protovalidate** (Buf) annotations, plus CEL expressions.
 
-- Enable request validation with `VALIDATION_ENABLED=true` in your environment.
-- Choose validation source: `VALIDATION_SOURCE=auto|pgv|protovalidate`.
-- Streaming mode: `VALIDATION_MODE=per_message|aggregate` (per-message by default).
+- Enable validation: set `VALIDATION_ENABLED=true`.
+- Select source: `VALIDATION_SOURCE=auto|pgv|protovalidate`.
+- Streaming mode: `VALIDATION_MODE=per_message|aggregate` (default `per_message`).
+- Message-level CEL gate: `VALIDATION_CEL_MESSAGE=experimental|off` (default `off`).
 - Validation applies to unary and streaming requests.
+
+### Source Selection
+- `VALIDATION_SOURCE=pgv`: enforce only PGV annotations (`(validate.rules).*`). Protovalidate annotations are ignored.
+- `VALIDATION_SOURCE=protovalidate`: enforce only Protovalidate annotations (`(buf.validate.field).*`). PGV annotations are ignored.
+- `VALIDATION_SOURCE=auto` (default): Protovalidate takes precedence; if no Protovalidate rule is present for a field, PGV is used as a fallback.
+
+Examples:
+```bash
+# PGV only
+VALIDATION_ENABLED=true VALIDATION_SOURCE=pgv bun run start
+
+# Protovalidate only
+VALIDATION_ENABLED=true VALIDATION_SOURCE=protovalidate bun run start
+
+# Auto (Protovalidate preferred, PGV fallback)
+VALIDATION_ENABLED=true VALIDATION_SOURCE=auto bun run start
+```
 
 Note: The `buf/validate/validate.proto` vendored in `protos/` is fetched from the official Buf Protovalidate repository and pinned to a release tag for determinism. Use `bun run protos:fetch` to refresh. See `scripts/fetch-third-party-protos.sh`.
 

@@ -2,6 +2,12 @@
 
 This mock gRPC server now supports **Protovalidate** (formerly PGV v2) validation in addition to PGV (Protoc Gen Validate).
 
+Enable with env:
+- `VALIDATION_ENABLED=true`
+- `VALIDATION_SOURCE=protovalidate` (Protovalidate-only) or `auto` (Protovalidate preferred, PGV fallback)
+- Optional: `VALIDATION_MODE=per_message|aggregate` (default `per_message`)
+- Message-level CEL is gated by `VALIDATION_CEL_MESSAGE=experimental|off` (default `off`).
+
 Note: The `buf/validate/validate.proto` used by the server is fetched directly from the official Buf Protovalidate repository and pinned to a release tag for determinism. Run `bun run protos:fetch` to update vendor protos (see `scripts/fetch-third-party-protos.sh`, pinned to `v1.0.0`).
 
 ## Overview
@@ -206,7 +212,10 @@ The validation engine supports both PGV and Protovalidate validation:
 | Number rules | Type suffix (`.int32`, `.float`, etc.) | Type suffix (`.int_val`, `.double_val`) |
 | Status | Fully supported | Fully supported |
 
-If a field has both PGV and Protovalidate annotations, **Protovalidate takes precedence**.
+Source selection rules:
+- With `VALIDATION_SOURCE=pgv`, only PGV rules are enforced; Protovalidate rules are ignored.
+- With `VALIDATION_SOURCE=protovalidate`, only Protovalidate rules are enforced; PGV rules are ignored.
+- With `VALIDATION_SOURCE=auto` (default), Protovalidate takes precedence; if no Protovalidate rule is present, PGV is used as fallback.
 
 ## Testing
 

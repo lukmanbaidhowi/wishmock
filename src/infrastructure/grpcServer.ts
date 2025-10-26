@@ -67,7 +67,7 @@ export function buildHandlersFromRoot(rootNamespace: protobuf.Root, rulesIndex: 
             const rule = rulesIndex.get(ruleKey);
             // Validation (unary request)
             try {
-              if (validationRuntime.isEnabled()) {
+              if (validationRuntime.active()) {
                 const typeKey = reqType.fullName || reqType.name;
                 const validator = validationRuntime.getValidator(typeKey);
                 if (validator) {
@@ -92,7 +92,7 @@ export function buildHandlersFromRoot(rootNamespace: protobuf.Root, rulesIndex: 
             const rule = rulesIndex.get(ruleKey);
             // Validation (unary request → server streaming response)
             try {
-              if (validationRuntime.isEnabled()) {
+              if (validationRuntime.active()) {
                 const validator = validationRuntime.getValidator(reqType.fullName || reqType.name);
                 if (validator) {
                   const result = validator(reqObj);
@@ -114,7 +114,7 @@ export function buildHandlersFromRoot(rootNamespace: protobuf.Root, rulesIndex: 
             const messages: unknown[] = [];
             call.on("data", (chunk) => {
               // Validate each incoming message in per_message mode
-              if (validationRuntime.isEnabled() && validationRuntime.mode() === 'per_message') {
+              if (validationRuntime.active() && validationRuntime.mode() === 'per_message') {
                 try {
                   const validator = validationRuntime.getValidator(reqType.fullName || reqType.name);
                   if (validator) {
@@ -137,7 +137,7 @@ export function buildHandlersFromRoot(rootNamespace: protobuf.Root, rulesIndex: 
             call.on("end", () => {
               if ((call as any).cancelled) return;
               // Aggregate mode: validate after stream end against full batch (simple per-message pass-through for now)
-              if (validationRuntime.isEnabled() && validationRuntime.mode() === 'aggregate') {
+              if (validationRuntime.active() && validationRuntime.mode() === 'aggregate') {
                 try {
                   const validator = validationRuntime.getValidator(reqType.fullName || reqType.name);
                   if (validator) {
@@ -165,7 +165,7 @@ export function buildHandlersFromRoot(rootNamespace: protobuf.Root, rulesIndex: 
             const messages: unknown[] = [];
             call.on("data", (chunk) => {
               // Validate each incoming message in per_message mode
-              if (validationRuntime.isEnabled() && validationRuntime.mode() === 'per_message') {
+              if (validationRuntime.active() && validationRuntime.mode() === 'per_message') {
                 try {
                   const validator = validationRuntime.getValidator(reqType.fullName || reqType.name);
                   if (validator) {
@@ -187,7 +187,7 @@ export function buildHandlersFromRoot(rootNamespace: protobuf.Root, rulesIndex: 
             });
             call.on("end", () => {
               if ((call as any).cancelled) return;
-              if (validationRuntime.isEnabled() && validationRuntime.mode() === 'aggregate') {
+              if (validationRuntime.active() && validationRuntime.mode() === 'aggregate') {
                 try {
                   const validator = validationRuntime.getValidator(reqType.fullName || reqType.name);
                   if (validator) {

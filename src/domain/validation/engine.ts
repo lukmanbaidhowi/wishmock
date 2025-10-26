@@ -26,14 +26,10 @@ function getOrCompileRegex(pattern: string, flags?: string): RegExp {
 // Simple CEL expression evaluator
 function evaluateCelExpression(expression: string, context: Record<string, any>): boolean {
   try {
-    // Create a function that has access to message fields as variables
-    const variables = Object.keys(context).join(', ');
-    const values = Object.values(context);
-    
-    // Escape the expression to prevent injection
-    // Support basic CEL operators: ==, !=, <, >, <=, >=, &&, ||, !
-    const fn = new Function(...Object.keys(context), `return ${expression}`);
-    return Boolean(fn(...values));
+    // Basic evaluator: expose fields as identifiers and allow `this.*` via binding.
+    // Use `with` to scope lookups to the context object.
+    const fn = new Function('ctx', `with (ctx) { return (${expression}); }`);
+    return Boolean(fn.call(context, context));
   } catch (error) {
     return false;
   }
@@ -520,7 +516,7 @@ function validateField(
   }
 }
 
-export function validate(ir: ValidationIR, message: unknown): ValidationResult {
+export function validate(ir: ValidationIR, message: unknown, opts?: { enforceMessageCel?: boolean }): ValidationResult {
   if (!message || typeof message !== "object") {
     return {
       ok: false,
@@ -539,6 +535,14 @@ export function validate(ir: ValidationIR, message: unknown): ValidationResult {
   for (const [fieldName, constraint] of ir.fields) {
     const fieldViolations = validateField(message, constraint);
     violations.push(...fieldViolations);
+  }
+
+  // Message-level CEL (basic)
+  if (opts?.enforceMessageCel && ir.message?.cel && ir.message.cel.length > 0) {
+    for (const celRule of ir.message.cel) {
+      const v = validateCel(celRule.expression, message as any, celRule.message);
+      if (v.length) violations.push(...v);
+    }
   }
 
   // Oneof group validation (proto semantics + optional required annotation)

@@ -151,13 +151,14 @@ function extractRepeatedRulesFromFlat(options: Record<string, any>): RepeatedCon
 
 function extractProtovalidateStringRules(options: Record<string, any>): StringConstraintOps | null {
   const ops: StringConstraintOps = {};
-  const prefix = "(buf.validate.field).string_val.";
-  
+  const prefixes = ["(buf.validate.field).string.", "(buf.validate.field).string_val."]; // support legacy *_val
+
   let foundAny = false;
   for (const [key, value] of Object.entries(options)) {
-    if (!key.startsWith(prefix)) continue;
+    const prefix = prefixes.find(p => key.startsWith(p));
+    if (!prefix) continue;
     foundAny = true;
-    
+
     const ruleName = key.slice(prefix.length);
     switch (ruleName) {
       case "min_len": ops.min_len = Number(value); break;
@@ -184,21 +185,21 @@ function extractProtovalidateStringRules(options: Record<string, any>): StringCo
 
 function extractProtovalidateNumberRules(options: Record<string, any>, fieldType: string): NumberConstraintOps | null {
   const ops: NumberConstraintOps = {};
-  
-  const typeKey = fieldType.includes('int') ? 'int_val'
-    : fieldType.includes('float') || fieldType.includes('double') ? 'double_val'
-    : fieldType.includes('uint') ? 'uint_val'
-    : null;
 
-  if (!typeKey) return null;
+  const numericTypes = ['int32','int64','uint32','uint64','sint32','sint64','fixed32','fixed64','sfixed32','sfixed64','float','double'];
+  const prefixes: string[] = [];
+  if (numericTypes.includes(fieldType)) prefixes.push(`(buf.validate.field).${fieldType}.`);
+  // legacy fallbacks
+  if (fieldType.includes('int')) prefixes.push('(buf.validate.field).int_val.');
+  if (fieldType.includes('uint')) prefixes.push('(buf.validate.field).uint_val.');
+  if (fieldType.includes('float') || fieldType.includes('double')) prefixes.push('(buf.validate.field).double_val.');
 
-  const prefix = `(buf.validate.field).${typeKey}.`;
   let foundAny = false;
-
   for (const [key, value] of Object.entries(options)) {
-    if (!key.startsWith(prefix)) continue;
+    const prefix = prefixes.find(p => key.startsWith(p));
+    if (!prefix) continue;
     foundAny = true;
-    
+
     const ruleName = key.slice(prefix.length);
     switch (ruleName) {
       case "const": ops.const = Number(value); break;
@@ -214,13 +215,14 @@ function extractProtovalidateNumberRules(options: Record<string, any>, fieldType
 
 function extractProtovalidateRepeatedRules(options: Record<string, any>): RepeatedConstraintOps | null {
   const ops: RepeatedConstraintOps = {};
-  const prefix = "(buf.validate.field).repeated_val.";
-  
+  const prefixes = ["(buf.validate.field).repeated.", "(buf.validate.field).repeated_val."]; // support legacy
+
   let foundAny = false;
   for (const [key, value] of Object.entries(options)) {
-    if (!key.startsWith(prefix)) continue;
+    const prefix = prefixes.find(p => key.startsWith(p));
+    if (!prefix) continue;
     foundAny = true;
-    
+
     const ruleName = key.slice(prefix.length);
     switch (ruleName) {
       case "min_items": ops.min_items = Number(value); break;
@@ -233,9 +235,9 @@ function extractProtovalidateRepeatedRules(options: Record<string, any>): Repeat
 }
 
 function extractProtovalidateRequiredRule(options: Record<string, any>): PresenceConstraintOps | null {
-  const key = "(buf.validate.field).message_val.required";
-  if (options[key] === true) {
-    return { required: true };
+  const keys = ["(buf.validate.field).required", "(buf.validate.field).message_val.required"]; // support legacy
+  for (const key of keys) {
+    if (options[key] === true) return { required: true };
   }
   return null;
 }
@@ -276,13 +278,14 @@ function extractCelExpression(options: Record<string, any>): FieldConstraint | n
 
 function extractEnumRules(options: Record<string, any>): EnumConstraintOps | null {
   const ops: EnumConstraintOps = {};
-  const prefix = "(buf.validate.field).enum_val.";
-  
+  const prefixes = ["(buf.validate.field).enum.", "(buf.validate.field).enum_val."]; // support legacy
+
   let foundAny = false;
   for (const [key, value] of Object.entries(options)) {
-    if (!key.startsWith(prefix)) continue;
+    const prefix = prefixes.find(p => key.startsWith(p));
+    if (!prefix) continue;
     foundAny = true;
-    
+
     const ruleName = key.slice(prefix.length);
     switch (ruleName) {
       case "defined_only": ops.definedOnly = Boolean(value); break;
@@ -583,7 +586,11 @@ export function extractAllRules(
 
   for (const [typeName, messageType] of messages) {
     const ir = extractMessageRules(messageType, source);
-    if (ir.fields.size > 0 || (ir.oneofs && ir.oneofs.length > 0)) {
+    if (
+      ir.fields.size > 0 ||
+      (ir.oneofs && ir.oneofs.length > 0) ||
+      (ir.message?.cel && ir.message.cel.length > 0)
+    ) {
       irMap.set(typeName, ir);
     }
   }

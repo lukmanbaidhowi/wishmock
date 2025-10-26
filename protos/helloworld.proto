@@ -18,6 +18,8 @@ service Greeter {
   rpc BufValidateString (BufValidationStringRequest) returns (HelloReply);
   rpc BufValidateNumber (BufValidationNumberRequest) returns (HelloReply);
   rpc BufValidateRepeated (BufValidationRepeatedRequest) returns (HelloReply);
+  // RPC using message-level CEL example
+  rpc BufMessageCelCheck (BufMessageCel) returns (HelloReply);
 }
 
 message HelloRequest {

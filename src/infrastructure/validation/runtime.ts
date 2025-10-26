@@ -38,7 +38,9 @@ class ValidationRuntime {
     const irMap = extractAllRules(messages, this.source);
     for (const [typeName, ir] of irMap) {
       this.irByType.set(typeName, ir);
-      this.validators.set(typeName, (msg: unknown) => validate(ir, msg));
+      this.validators.set(typeName, (msg: unknown) =>
+        validate(ir, msg, { enforceMessageCel: this.celMessageMode === 'experimental' })
+      );
     }
   }
 

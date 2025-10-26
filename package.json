@@ -61,6 +61,7 @@
     "validation:test": "bash scripts/test-validation-e2e.sh",
     "validation:comprehensive": "bash scripts/test-validation-comprehensive.sh",
     "validation:all": "bash scripts/test-validation-all.sh",
+    "validation:e2e:protovalidate": "bash scripts/test-protovalidate-official-e2e.sh",
     "prepublishOnly": "tsc -p tsconfig.json"
   }
 }

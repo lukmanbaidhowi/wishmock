@@ -499,11 +499,34 @@ export function extractMessageRules(messageType: protobuf.Type): ValidationIR {
   const typeName = messageType.fullName?.replace(/^\./, "") || messageType.name;
   const fields = new Map<string, FieldConstraint>();
   const oneofs: OneofConstraint[] = [];
+  const messageLevel: { cel?: { expression: string; message?: string }[]; skip?: boolean; source?: 'pgv' | 'protovalidate' } = {};
 
   for (const field of messageType.fieldsArray) {
     const constraint = extractFieldRules(field);
     if (constraint) {
       fields.set(field.name, constraint);
+    }
+  }
+
+  // Message-level rules (Buf Protovalidate)
+  if (messageType.options && typeof messageType.options === 'object') {
+    const opts = messageType.options as Record<string, any>;
+    // (buf.validate.message).cel.{expression,message}
+    const celExprKey = '(buf.validate.message).cel.expression';
+    const celMsgKey = '(buf.validate.message).cel.message';
+    let celExpr: string | undefined;
+    let celMsg: string | undefined;
+    if (typeof opts[celExprKey] !== 'undefined') celExpr = String(opts[celExprKey]);
+    if (typeof opts[celMsgKey] !== 'undefined') celMsg = String(opts[celMsgKey]);
+    if (celExpr) {
+      messageLevel.cel = [{ expression: celExpr, message: celMsg }];
+      messageLevel.source = 'protovalidate';
+    }
+    // Best-effort support for a potential skip/disabled flag if present
+    const skipKey = '(buf.validate.message).skip';
+    if (opts[skipKey] === true) {
+      messageLevel.skip = true;
+      messageLevel.source = 'protovalidate';
     }
   }
 
@@ -543,6 +566,7 @@ export function extractMessageRules(messageType: protobuf.Type): ValidationIR {
     typeName,
     fields,
     oneofs: oneofs.length > 0 ? oneofs : undefined,
+    message: (messageLevel.cel || messageLevel.skip) ? messageLevel : undefined,
   };
 }
 

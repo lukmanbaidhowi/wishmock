@@ -83,6 +83,13 @@ export interface ValidationIR {
   typeName: string;
   fields: Map<string, FieldConstraint>;
   oneofs?: OneofConstraint[];
+  message?: {
+    // Parsed from (buf.validate.message).cel; enforcement gated elsewhere
+    cel?: CelConstraintOps[];
+    // Reserved for potential upstream support; not enforced here
+    skip?: boolean;
+    source?: 'pgv' | 'protovalidate';
+  };
 }
 
 export interface FieldViolation {

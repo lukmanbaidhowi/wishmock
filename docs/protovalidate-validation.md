@@ -2,6 +2,8 @@
 
 This mock gRPC server now supports **Protovalidate** (formerly PGV v2) validation in addition to PGV (Protoc Gen Validate).
 
+Note: The `buf/validate/validate.proto` used by the server is fetched directly from the official Buf Protovalidate repository and pinned to a release tag for determinism. Run `bun run protos:fetch` to update vendor protos (see `scripts/fetch-third-party-protos.sh`, pinned to `v1.0.0`).
+
 ## Overview
 
 Protovalidate allows you to define validation rules directly in your `.proto` files using the `buf.validate.field` extension. The validation engine automatically extracts and enforces these rules at runtime.

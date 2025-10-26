@@ -10,6 +10,7 @@ mkdir -p \
   "$DST/google/rpc" \
   "$DST/google/longrunning" \
   "$DST/google/protobuf" \
+  "$DST/buf/validate" \
   "$DST/validate" \
   "$DST/opentelemetry/proto/common/v1" \
   "$DST/opentelemetry/proto/resource/v1" \
@@ -95,6 +96,13 @@ echo "Fetching protoc-gen-validate proto..."
 PGV_TAG=v1.0.4
 fetch "$DST/validate/validate.proto" \
   https://raw.githubusercontent.com/bufbuild/protoc-gen-validate/$PGV_TAG/validate/validate.proto
+
+echo "Fetching official Buf Protovalidate protos..."
+# Pin to a tagged release for determinism
+PROTOVALIDATE_TAG=v1.0.0
+# Upstream path for validate.proto in the protovalidate repository
+fetch "$DST/buf/validate/validate.proto" \
+  https://raw.githubusercontent.com/bufbuild/protovalidate/$PROTOVALIDATE_TAG/proto/protovalidate/buf/validate/validate.proto
 
 echo "Fetching OpenTelemetry protos (core subsets)..."
 OTEL_TAG=v1.1.0

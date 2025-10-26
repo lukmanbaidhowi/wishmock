@@ -207,6 +207,7 @@ describe("Rule Extractor - Protovalidate Validation", () => {
 describe("Rule Extractor - CEL Expressions", () => {
   let root: protobuf.Root;
   let celValidationRequestType: protobuf.Type;
+  let bufMessageCelType: protobuf.Type;
 
   beforeAll(async () => {
     const protoDir = path.resolve("protos");
@@ -215,6 +216,7 @@ describe("Rule Extractor - CEL Expressions", () => {
     
     const info = buildDescriptorInfo(root);
     celValidationRequestType = info.messages.get("helloworld.CelValidationRequest")!;
+    bufMessageCelType = info.messages.get("helloworld.BufMessageCel")!;
   });
 
   it("should extract CEL expression constraint", () => {
@@ -236,6 +238,15 @@ describe("Rule Extractor - CEL Expressions", () => {
     expect(ir.typeName).toBe("helloworld.CelValidationRequest");
     expect(ir.fields.size).toBe(1);
     expect(ir.fields.has("age")).toBe(true);
+  });
+
+  it("should parse message-level CEL (protovalidate)", () => {
+    const ir = extractMessageRules(bufMessageCelType);
+    expect(ir.typeName).toBe("helloworld.BufMessageCel");
+    expect(ir.message?.cel && ir.message.cel.length).toBe(1);
+    const rule = ir.message?.cel?.[0]!;
+    expect(rule.expression).toBe("this.min_value < this.max_value");
+    expect(rule.message).toBe("min_value must be less than max_value");
   });
 });
 
@@ -274,4 +285,3 @@ describe("Rule Extractor - Enum Validation", () => {
     expect(ir.fields.has("status")).toBe(true);
   });
 });
-

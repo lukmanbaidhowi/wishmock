@@ -14,6 +14,10 @@ service Greeter {
   rpc UploadHello (stream HelloRequest) returns (HelloReply);
   rpc ChatHello (stream HelloRequest) returns (stream HelloReply);
   rpc ValidateOneof (OneofValidationRequest) returns (HelloReply);
+  // Official Buf Protovalidate examples
+  rpc BufValidateString (BufValidationStringRequest) returns (HelloReply);
+  rpc BufValidateNumber (BufValidationNumberRequest) returns (HelloReply);
+  rpc BufValidateRepeated (BufValidationRepeatedRequest) returns (HelloReply);
 }
 
 message HelloRequest {
@@ -153,6 +157,17 @@ message CelRangeValidationRequest {
       gte: 0
     }
   ];
+}
+
+// Message-level CEL using official Buf Protovalidate annotation
+message BufMessageCel {
+  option (buf.validate.message).cel = {
+    expression: "this.min_value < this.max_value",
+    message: "min_value must be less than max_value"
+  };
+
+  int32 min_value = 1;
+  int32 max_value = 2;
 }
 
 enum Status {

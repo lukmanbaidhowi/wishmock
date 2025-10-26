@@ -463,6 +463,8 @@ The validation engine supports both **PGV** (protoc-gen-validate) and **Protoval
 - Streaming mode: `VALIDATION_MODE=per_message|aggregate` (per-message by default).
 - Validation applies to unary and streaming requests.
 
+Note: The `buf/validate/validate.proto` vendored in `protos/` is fetched from the official Buf Protovalidate repository and pinned to a release tag for determinism. Use `bun run protos:fetch` to refresh. See `scripts/fetch-third-party-protos.sh`.
+
 Guides:
 - PGV: `docs/pgv-validation.md`
 - Protovalidate (Buf): `docs/protovalidate-validation.md`

@@ -6,7 +6,6 @@ Enable with env:
 - `VALIDATION_ENABLED=true`
 - `VALIDATION_SOURCE=protovalidate` (Protovalidate-only) or `auto` (Protovalidate preferred, PGV fallback)
 - Optional: `VALIDATION_MODE=per_message|aggregate` (default `per_message`)
-- Message-level CEL is gated by `VALIDATION_CEL_MESSAGE=experimental|off` (default `off`).
 
 Note: The `buf/validate/validate.proto` used by the server is fetched directly from the official Buf Protovalidate repository and pinned to a release tag for determinism. Run `bun run protos:fetch` to update vendor protos (see `scripts/fetch-third-party-protos.sh`, pinned to `v1.0.0`).
 
@@ -24,42 +23,31 @@ import "buf/validate/validate.proto";
 
 ### 2. Add Validation Annotations
 
-Add validation constraints to your message fields:
+Add validation constraints to your message fields (official option names):
 
 ```protobuf
 message User {
   string first_name = 1 [
-    (buf.validate.field).string_val = {
-      min_len: 1,
-      max_len: 50
-    }
+    (buf.validate.field).string = { min_len: 1, max_len: 50 }
   ];
-  
+
   string email = 2 [
-    (buf.validate.field).string_val = {
-      email: true
-    }
+    (buf.validate.field).string = { email: true }
   ];
-  
+
   int32 age = 3 [
-    (buf.validate.field).int_val = {
-      gte: 0,
-      lte: 150
-    }
+    (buf.validate.field).int32 = { gte: 0, lte: 150 }
   ];
-  
+
   repeated string tags = 4 [
-    (buf.validate.field).repeated_val = {
-      min_items: 1,
-      max_items: 10
-    }
+    (buf.validate.field).repeated = { min_items: 1, max_items: 10 }
   ];
 }
 ```
 
 ## Supported Constraints
 
-### String Constraints (`string_val`)
+### String Constraints (`string`)
 
 - `min_len: int32` - Minimum string length
 - `max_len: int32` - Maximum string length
@@ -78,7 +66,7 @@ message User {
 - `contains: string` - Must contain this substring
 - `not_contains: string` - Must not contain this substring
 
-### Number Constraints (`int_val`, `double_val`, `uint_val`)
+### Numeric Constraints (e.g., `int32`, `uint32`, `double`)
 
 - `const: int64/double/uint64` - Value must equal this constant
 - `gt: int64/double/uint64` - Greater than
@@ -86,15 +74,15 @@ message User {
 - `lt: int64/double/uint64` - Less than
 - `lte: int64/double/uint64` - Less than or equal
 
-### Repeated Constraints (`repeated_val`)
+### Repeated Constraints (`repeated`)
 
 - `min_items: int32` - Minimum number of items
 - `max_items: int32` - Maximum number of items
 - `unique: bool` - All items must be unique
 
-### Message Constraints (`message_val`)
+### Field Presence (`required`)
 
-- `required: bool` - Field is required (must be present)
+- `(buf.validate.field).required = true` — for fields with presence, requires it to be set; for scalars, disallows zero value
 
 ## CEL Expression Validation
 
@@ -161,12 +149,12 @@ message Account {
 
 ## Examples
 
-### Email Validation
+### Email Validation (string)
 
 ```protobuf
 message SignupRequest {
   string email = 1 [
-    (buf.validate.field).string_val = {
+    (buf.validate.field).string = {
       email: true,
       max_len: 254
     }
@@ -174,12 +162,12 @@ message SignupRequest {
 }
 ```
 
-### Numeric Range
+### Numeric Range (int32)
 
 ```protobuf
 message PaginationRequest {
   int32 page_size = 1 [
-    (buf.validate.field).int_val = {
+    (buf.validate.field).int32 = {
       gte: 1,
       lte: 100
     }
@@ -187,12 +175,12 @@ message PaginationRequest {
 }
 ```
 
-### List Validation
+### List Validation (repeated)
 
 ```protobuf
 message BatchRequest {
   repeated string ids = 1 [
-    (buf.validate.field).repeated_val = {
+    (buf.validate.field).repeated = {
       min_items: 1,
       max_items: 1000,
       unique: true
@@ -205,12 +193,19 @@ message BatchRequest {
 
 The validation engine supports both PGV and Protovalidate validation:
 
-| Feature | PGV | Protovalidate |
-|---------|-----|-----|
-| Syntax | `(validate.rules)` | `(buf.validate.field)` |
-| String rules | Nested object | Type suffix (`.string_val`) |
-| Number rules | Type suffix (`.int32`, `.float`, etc.) | Type suffix (`.int_val`, `.double_val`) |
-| Status | Fully supported | Fully supported |
+- Syntax
+  - PGV: `(validate.rules)`
+  - Protovalidate: `(buf.validate.field)`
+- String rules
+  - PGV: nested under `(validate.rules).string.*`
+  - Protovalidate: `(buf.validate.field).string.*`
+- Numeric rules
+  - PGV: type-specific, e.g., `(validate.rules).int32.*`, `(validate.rules).double.*`
+  - Protovalidate: type-specific, e.g., `(buf.validate.field).int32.*`, `(buf.validate.field).double.*`
+- Repeated/Enum
+  - PGV: `(validate.rules).repeated.*`, enums via `(validate.rules).enum.*`
+  - Protovalidate: `(buf.validate.field).repeated.*`, `(buf.validate.field).enum.*`
+- Status: Both supported
 
 Source selection rules:
 - With `VALIDATION_SOURCE=pgv`, only PGV rules are enforced; Protovalidate rules are ignored.

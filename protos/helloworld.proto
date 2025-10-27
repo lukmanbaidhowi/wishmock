@@ -20,6 +20,8 @@ service Greeter {
   rpc BufValidateRepeated (BufValidationRepeatedRequest) returns (HelloReply);
   // RPC using message-level CEL example
   rpc BufMessageCelCheck (BufMessageCel) returns (HelloReply);
+  // RPC using message-level oneof example
+  rpc BufMessageOneofCheck (BufMessageOneof) returns (HelloReply);
 }
 
 message HelloRequest {
@@ -170,6 +172,19 @@ message BufMessageCel {
 
   int32 min_value = 1;
   int32 max_value = 2;
+}
+
+// Message-level oneof using official Buf Protovalidate annotation
+message BufMessageOneof {
+  // Only one of a or b can be present
+  option (buf.validate.message).oneof = { fields: ["a", "b"] };
+  // Exactly one of c or d must be present
+  option (buf.validate.message).oneof = { fields: ["c", "d"], required: true };
+
+  string a = 1;
+  int32 b = 2;
+  string c = 3;
+  string d = 4;
 }
 
 enum Status {

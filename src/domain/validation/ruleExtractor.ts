@@ -536,6 +536,23 @@ export function extractMessageRules(messageType: protobuf.Type, source: Validati
       messageLevel.skip = true;
       messageLevel.source = 'protovalidate';
     }
+
+    // (buf.validate.message).oneof — baseline parsing for flattened keys
+    // Note: protobufjs flattens repeated options and we often only see the last value.
+    // We support the common case where a single oneof rule is present.
+    const oneofFieldsKey = '(buf.validate.message).oneof.fields';
+    const oneofReqKey = '(buf.validate.message).oneof.required';
+    if (typeof opts[oneofFieldsKey] !== 'undefined') {
+      const raw = opts[oneofFieldsKey];
+      const required = Boolean(opts[oneofReqKey]);
+      let fields: string[] | undefined;
+      if (Array.isArray(raw)) fields = raw.map(String);
+      else if (typeof raw === 'string') fields = [raw];
+      else if (raw && typeof raw === 'object' && Array.isArray((raw as any).fields)) fields = (raw as any).fields.map(String);
+      if (fields && fields.length > 0) {
+        oneofs.push({ name: 'message_oneof_1', fields, required, source: 'protovalidate' });
+      }
+    }
   }
 
   // Oneof groups: enforce proto semantics (at most one set) and required if annotated

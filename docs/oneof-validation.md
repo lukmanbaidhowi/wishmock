@@ -11,7 +11,15 @@ This document explains how oneof constraints are validated and what to expect wh
 ## What We Enforce
 
 - At‑most‑one (proto): Enforced by Protobuf semantics; the validator includes a check for completeness but it won’t be triggered by normal gRPC traffic.
-- Exactly‑one (required): Enforced by the validator using PGV oneof annotation `(validate.required) = true` (best‑effort support for Protovalidate may be added over time). Requests with zero members set are rejected.
+- Exactly‑one (required): Enforced by the validator using PGV oneof annotation `(validate.required) = true`. Requests with zero members set are rejected.
+
+### Protovalidate message‑level oneof (baseline)
+
+- The official annotation `(buf.validate.message).oneof = { fields: [..], required: bool }` is parsed in a baseline form.
+- Due to protobufjs option flattening, only a single rule and the last field value may be visible at runtime. We therefore:
+  - Support a single message‑level oneof rule when present.
+  - Extract the visible `fields` value; if a single string is exposed by the loader, it becomes a single‑field group (semantically equivalent to a required presence check when `required=true`).
+- This limitation is documented; PGV oneof on actual proto `oneof` groups remains the recommended approach for multi‑field groups until descriptor‑based parsing is integrated.
 
 ## Error Format
 
@@ -36,7 +44,7 @@ When a “multiple set” is detected (e.g., in unit tests or non‑Protobuf inp
 
 - PGV: `extend google.protobuf.OneofOptions { optional bool required = 1071; }`
   - Usage in .proto: `oneof contact_req { option (validate.required) = true; string email_req = 3; string phone_req = 4; }`
-- Protovalidate: best‑effort detection may be supported; semantics target parity with “exactly one”.
+- Protovalidate (baseline): `option (buf.validate.message).oneof = { fields: ["a", "b"], required: true }` — parsed with the loader’s flattened view; see notes above.
 
 ## Example
 
@@ -87,4 +95,3 @@ responses:
   - It’s a defensive guard that keeps behavior explicit and covers non‑Protobuf entry points or internal uses of the validator.
 - How do I make a oneof required?
   - Use PGV’s oneof `required` option on the group in your .proto, as shown above.
-

@@ -63,6 +63,10 @@
     "validation:all": "bash scripts/test-validation-all.sh",
     "validation:e2e:protovalidate": "bash scripts/test-protovalidate-official-e2e.sh",
     "validation:e2e:protovalidate:oneof": "bash scripts/test-protovalidate-oneof-e2e.sh",
+    "validation:e2e:protovalidate:bytes": "bash scripts/test-protovalidate-bytes-e2e.sh",
+    "validation:e2e:protovalidate:maps": "bash scripts/test-protovalidate-maps-e2e.sh",
+    "validation:e2e:protovalidate:wkt:timestamp-duration": "bash scripts/test-protovalidate-wkt-timestamp-duration-e2e.sh",
+    "validation:e2e:protovalidate:wkt:any": "bash scripts/test-protovalidate-wkt-any-e2e.sh",
     "prepublishOnly": "tsc -p tsconfig.json"
   }
 }

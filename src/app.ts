@@ -50,7 +50,12 @@ async function startGrpc(rootNamespace: protobuf.Root) {
   serverTls = null;
 
   // Build a server instance (handlers) once to capture services meta
-  const entryFiles = protoReport.filter(r => r.status === "loaded").map(r => path.join(PROTO_DIR, r.file));
+  // Reflection note: proto-loader/grpcurl has limitations with map fields.
+  // Exclude validation_examples.proto from reflection entry files to avoid crashes.
+  const entryFiles = protoReport
+    .filter(r => r.status === "loaded")
+    .map(r => path.join(PROTO_DIR, r.file))
+    .filter(f => !f.endsWith(path.sep + 'validation_examples.proto'));
   const { server: s1, servicesMap } = await createGrpcServer(rootNamespace, rulesIndex, log, err, { protoDir: PROTO_DIR, entryFiles });
   servicesMeta = servicesMap;
   servicesKeys = [...servicesMap.keys()];
@@ -82,7 +87,10 @@ async function startGrpc(rootNamespace: protobuf.Root) {
       if (TLS_REQUIRE_CLIENT_CERT === "false" || TLS_REQUIRE_CLIENT_CERT === "0") requireClientCert = false;
       const creds = grpc.ServerCredentials.createSsl(rootCerts, [{ private_key: key, cert_chain: cert }], requireClientCert);
       // Build separate secure server with the same handlers
-      const entryFiles2 = protoReport.filter(r => r.status === "loaded").map(r => path.join(PROTO_DIR, r.file));
+      const entryFiles2 = protoReport
+        .filter(r => r.status === "loaded")
+        .map(r => path.join(PROTO_DIR, r.file))
+        .filter(f => !f.endsWith(path.sep + 'validation_examples.proto'));
       const { server: s2 } = await createGrpcServer(rootNamespace, rulesIndex, log, err, { protoDir: PROTO_DIR, entryFiles: entryFiles2 });
       await new Promise<void>((resolve, reject) => {
         s2.bindAsync(`0.0.0.0:${GRPC_PORT_TLS}`, creds, (e?: Error | null) => {

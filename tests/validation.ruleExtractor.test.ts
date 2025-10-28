@@ -204,6 +204,73 @@ describe("Rule Extractor - Protovalidate Validation", () => {
   });
 });
 
+describe("Rule Extractor - Protovalidate (bytes/map/wkt)", () => {
+  let root: protobuf.Root;
+  let mapType: protobuf.Type;
+  let bytesType: protobuf.Type;
+  let tsType: protobuf.Type;
+  let durType: protobuf.Type;
+  let anyType: protobuf.Type;
+
+  beforeAll(async () => {
+    const protoDir = path.resolve("protos");
+    const { root: loadedRoot } = await loadProtos(protoDir);
+    root = loadedRoot;
+    const info = buildDescriptorInfo(root);
+    mapType = info.messages.get("validation.MapExample")!;
+    bytesType = info.messages.get("validation.BytesExample")!;
+    tsType = info.messages.get("validation.TimestampExample")!;
+    durType = info.messages.get("validation.DurationExample")!;
+    anyType = info.messages.get("validation.AnyExample")!;
+  });
+
+  it("extracts bytes rules", () => {
+    const c = extractFieldRules(bytesType.fields["payload"], 'protovalidate');
+    expect(c).toBeDefined();
+    expect(c?.kind).toBe('bytes');
+    const ops = c?.ops as any;
+    expect(ops.min_len).toBe(3);
+    expect(ops.prefix).toBe("abc");
+  });
+
+  it("extracts map rules including keys/values", () => {
+    const c = extractFieldRules(mapType.fields["labels"], 'protovalidate');
+    expect(c).toBeDefined();
+    expect(c?.kind).toBe('map');
+    const ops = c?.ops as any;
+    expect(ops.min_pairs).toBe(1);
+    expect(ops.max_pairs).toBe(2);
+    expect(ops.keys.kind).toBe('string');
+    expect(ops.keys.ops.min_len).toBe(2);
+    expect(ops.values.kind).toBe('string');
+    expect(ops.values.ops.max_len).toBe(5);
+  });
+
+  it("extracts timestamp rules", () => {
+    const c = extractFieldRules(tsType.fields["ts"], 'protovalidate');
+    expect(c?.kind).toBe('timestamp');
+    const ops = c?.ops as any;
+    expect(ops.lt_now).toBe(true);
+    expect(ops.within).toBe("1h");
+  });
+
+  it("extracts duration rules", () => {
+    const c = extractFieldRules(durType.fields["d"], 'protovalidate');
+    expect(c?.kind).toBe('duration');
+    const ops = c?.ops as any;
+    expect(ops.gt).toBe("500ms");
+    expect(ops.lte).toBe("2s");
+  });
+
+  it("extracts Any rules", () => {
+    const c = extractFieldRules(anyType.fields["a"], 'protovalidate');
+    expect(c?.kind).toBe('any');
+    const ops = c?.ops as any;
+    expect(Array.isArray(ops.in)).toBe(true);
+    expect(Array.isArray(ops.not_in)).toBe(true);
+  });
+});
+
 describe("Rule Extractor - CEL Expressions", () => {
   let root: protobuf.Root;
   let celValidationRequestType: protobuf.Type;

@@ -80,6 +80,35 @@ message User {
 - `max_items: int32` - Maximum number of items
 - `unique: bool` - All items must be unique
 
+### Bytes Constraints (`bytes`)
+
+- `len: int32` - Exact byte length
+- `min_len: int32`, `max_len: int32` - Byte length bounds
+- `const: bytes/string` - Exact value match (base64 or UTF-8 string)
+- `pattern: string` - Regex match on UTF-8 representation
+- `prefix`, `suffix`, `contains` (UTF-8 string semantics)
+- `in`, `not_in` - Allowed/denied set (base64 or UTF-8 strings)
+- `ip`, `ipv4`, `ipv6` - IP address checks on UTF-8 representation
+
+### Map Constraints (`map<K,V>`)
+
+- `min_pairs: int32`, `max_pairs: int32`
+- Note: Nested key/value rules are not yet extracted; pair counts are enforced.
+
+### Well-Known Types
+
+#### `google.protobuf.Timestamp`
+- `const`, `lt`, `lte`, `gt`, `gte`: compare against RFC3339 string or epoch millis
+- `lt_now`, `gt_now`: relative to current time
+- `within: duration` (e.g., `5m`, `2h`): absolute delta to now within given duration
+
+#### `google.protobuf.Duration`
+- `const`, `lt`, `lte`, `gt`, `gte`: compare against duration strings (e.g., `500ms`, `2s`, `1h`) or millis
+- `within: duration`: require duration to be within bound
+
+#### `google.protobuf.Any`
+- `in: [type_url]`, `not_in: [type_url]` on the `type_url` field
+
 ### Field Presence (`required`)
 
 - `(buf.validate.field).required = true` — for fields with presence, requires it to be set; for scalars, disallows zero value
@@ -218,6 +247,9 @@ Run validation tests:
 
 ```bash
 bun test tests/validation.ruleExtractor.test.ts
+
+# Additional engine tests for new types
+bun test tests/validation.engine.test.ts
 ```
 
 See also:

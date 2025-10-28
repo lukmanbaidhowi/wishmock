@@ -9,6 +9,13 @@ import type {
   PresenceConstraintOps,
   EnumConstraintOps,
 } from "./types.js";
+import type {
+  BytesConstraintOps,
+  MapConstraintOps,
+  TimestampConstraintOps,
+  DurationConstraintOps,
+  AnyConstraintOps,
+} from "./types.js";
 import type { OneofConstraint } from "./types.js";
 import type { ValidationSource } from "./types.js";
 
@@ -242,6 +249,348 @@ function extractProtovalidateRequiredRule(options: Record<string, any>): Presenc
   return null;
 }
 
+// ============ Additional Protovalidate Field Extractors ============
+
+function extractProtovalidateBytesRules(options: Record<string, any>): BytesConstraintOps | null {
+  const ops: BytesConstraintOps = {};
+  const prefixes = ["(buf.validate.field).bytes.", "(buf.validate.field).bytes_val."]; // support legacy
+
+  let foundAny = false;
+  for (const [key, value] of Object.entries(options)) {
+    const prefix = prefixes.find((p) => key.startsWith(p));
+    if (!prefix) continue;
+    foundAny = true;
+    const ruleName = key.slice(prefix.length);
+    switch (ruleName) {
+      case "const": ops.const = String(value); break;
+      case "len": ops.len = Number(value); break;
+      case "min_len": ops.min_len = Number(value); break;
+      case "max_len": ops.max_len = Number(value); break;
+      case "pattern": ops.pattern = String(value); break;
+      case "prefix": ops.prefix = String(value); break;
+      case "suffix": ops.suffix = String(value); break;
+      case "contains": ops.contains = String(value); break;
+      case "in":
+        if (Array.isArray(value)) ops.in = value.map(String);
+        else if (value !== undefined) ops.in = [String(value)];
+        break;
+      case "not_in":
+        if (Array.isArray(value)) ops.not_in = value.map(String);
+        else if (value !== undefined) ops.not_in = [String(value)];
+        break;
+      case "ip": if (value === true) ops.ip = true; break;
+      case "ipv4": if (value === true) ops.ipv4 = true; break;
+      case "ipv6": if (value === true) ops.ipv6 = true; break;
+    }
+  }
+  return foundAny ? ops : null;
+}
+
+// Generic helpers to parse nested rules at custom bases
+function extractProtovalidateStringRulesWithBase(options: Record<string, any>, basePrefixes: string[]): StringConstraintOps | null {
+  const ops: StringConstraintOps = {};
+  let foundAny = false;
+  for (const [key, value] of Object.entries(options)) {
+    const prefix = basePrefixes.find((p) => key.startsWith(p));
+    if (!prefix) continue;
+    foundAny = true;
+    const ruleName = key.slice(prefix.length);
+    switch (ruleName) {
+      case "min_len": ops.min_len = Number(value); break;
+      case "max_len": ops.max_len = Number(value); break;
+      case "min_bytes": ops.min_bytes = Number(value); break;
+      case "max_bytes": ops.max_bytes = Number(value); break;
+      case "pattern": ops.pattern = String(value); break;
+      case "prefix": ops.prefix = String(value); break;
+      case "suffix": ops.suffix = String(value); break;
+      case "contains": ops.contains = String(value); break;
+      case "not_contains": ops.not_contains = String(value); break;
+      case "email": if (value === true) ops.email = true; break;
+      case "hostname": if (value === true) ops.hostname = true; break;
+      case "ipv4": if (value === true) ops.ipv4 = true; break;
+      case "ipv6": if (value === true) ops.ipv6 = true; break;
+      case "uri": if (value === true) ops.uri = true; break;
+      case "uuid": if (value === true) ops.uuid = true; break;
+      case "ip": ops.ipv4 = true; ops.ipv6 = true; break;
+    }
+  }
+  return foundAny ? ops : null;
+}
+
+function extractProtovalidateNumberRulesWithBase(options: Record<string, any>, fieldType: string, basePrefixes: string[]): NumberConstraintOps | null {
+  const ops: NumberConstraintOps = {};
+  let foundAny = false;
+  for (const [key, value] of Object.entries(options)) {
+    const prefix = basePrefixes.find((p) => key.startsWith(p));
+    if (!prefix) continue;
+    foundAny = true;
+    const ruleName = key.slice(prefix.length);
+    switch (ruleName) {
+      case "const": ops.const = Number(value); break;
+      case "lt": ops.lt = Number(value); break;
+      case "lte": ops.lte = Number(value); break;
+      case "gt": ops.gt = Number(value); break;
+      case "gte": ops.gte = Number(value); break;
+    }
+  }
+  return foundAny ? ops : null;
+}
+
+function extractEnumRulesWithBase(options: Record<string, any>, basePrefixes: string[]): EnumConstraintOps | null {
+  const ops: EnumConstraintOps = {};
+  let foundAny = false;
+  for (const [key, value] of Object.entries(options)) {
+    const prefix = basePrefixes.find((p) => key.startsWith(p));
+    if (!prefix) continue;
+    foundAny = true;
+    const ruleName = key.slice(prefix.length);
+    switch (ruleName) {
+      case "defined_only": ops.definedOnly = Boolean(value); break;
+      case "in":
+        if (Array.isArray(value)) ops.in = value.map(Number);
+        else if (value !== undefined) ops.in = [Number(value)];
+        break;
+      case "not_in":
+        if (Array.isArray(value)) ops.not_in = value.map(Number);
+        else if (value !== undefined) ops.not_in = [Number(value)];
+        break;
+    }
+  }
+  return foundAny ? ops : null;
+}
+
+function extractProtovalidateBytesRulesWithBase(options: Record<string, any>, basePrefixes: string[]): BytesConstraintOps | null {
+  const ops: BytesConstraintOps = {};
+  let foundAny = false;
+  for (const [key, value] of Object.entries(options)) {
+    const prefix = basePrefixes.find((p) => key.startsWith(p));
+    if (!prefix) continue;
+    foundAny = true;
+    const ruleName = key.slice(prefix.length);
+    switch (ruleName) {
+      case "const": ops.const = String(value); break;
+      case "len": ops.len = Number(value); break;
+      case "min_len": ops.min_len = Number(value); break;
+      case "max_len": ops.max_len = Number(value); break;
+      case "pattern": ops.pattern = String(value); break;
+      case "prefix": ops.prefix = String(value); break;
+      case "suffix": ops.suffix = String(value); break;
+      case "contains": ops.contains = String(value); break;
+      case "in":
+        if (Array.isArray(value)) ops.in = value.map(String);
+        else if (value !== undefined) ops.in = [String(value)];
+        break;
+      case "not_in":
+        if (Array.isArray(value)) ops.not_in = value.map(String);
+        else if (value !== undefined) ops.not_in = [String(value)];
+        break;
+      case "ip": if (value === true) ops.ip = true; break;
+      case "ipv4": if (value === true) ops.ipv4 = true; break;
+      case "ipv6": if (value === true) ops.ipv6 = true; break;
+    }
+  }
+  return foundAny ? ops : null;
+}
+
+function extractProtovalidateTimestampRulesWithBase(options: Record<string, any>, basePrefixes: string[]): TimestampConstraintOps | null {
+  const ops: TimestampConstraintOps = {};
+  let foundAny = false;
+  for (const [key, value] of Object.entries(options)) {
+    const prefix = basePrefixes.find((p) => key.startsWith(p));
+    if (!prefix) continue;
+    foundAny = true;
+    const ruleName = key.slice(prefix.length);
+    switch (ruleName) {
+      case "const": ops.const = value as any; break;
+      case "lt": ops.lt = value as any; break;
+      case "lte": ops.lte = value as any; break;
+      case "gt": ops.gt = value as any; break;
+      case "gte": ops.gte = value as any; break;
+      case "lt_now": ops.lt_now = Boolean(value); break;
+      case "gt_now": ops.gt_now = Boolean(value); break;
+      case "within": ops.within = String(value); break;
+    }
+  }
+  return foundAny ? ops : null;
+}
+
+function extractProtovalidateDurationRulesWithBase(options: Record<string, any>, basePrefixes: string[]): DurationConstraintOps | null {
+  const ops: DurationConstraintOps = {};
+  let foundAny = false;
+  for (const [key, value] of Object.entries(options)) {
+    const prefix = basePrefixes.find((p) => key.startsWith(p));
+    if (!prefix) continue;
+    foundAny = true;
+    const ruleName = key.slice(prefix.length);
+    switch (ruleName) {
+      case "const": ops.const = value as any; break;
+      case "lt": ops.lt = value as any; break;
+      case "lte": ops.lte = value as any; break;
+      case "gt": ops.gt = value as any; break;
+      case "gte": ops.gte = value as any; break;
+      case "within": ops.within = String(value); break;
+    }
+  }
+  return foundAny ? ops : null;
+}
+
+function extractProtovalidateAnyRulesWithBase(options: Record<string, any>, basePrefixes: string[]): AnyConstraintOps | null {
+  const ops: AnyConstraintOps = {};
+  let foundAny = false;
+  for (const [key, value] of Object.entries(options)) {
+    const prefix = basePrefixes.find((p) => key.startsWith(p));
+    if (!prefix) continue;
+    foundAny = true;
+    const ruleName = key.slice(prefix.length);
+    switch (ruleName) {
+      case "in":
+        if (Array.isArray(value)) ops.in = value.map(String);
+        else if (value !== undefined) ops.in = [String(value)];
+        break;
+      case "not_in":
+        if (Array.isArray(value)) ops.not_in = value.map(String);
+        else if (value !== undefined) ops.not_in = [String(value)];
+        break;
+    }
+  }
+  return foundAny ? ops : null;
+}
+
+function extractProtovalidateMapRules(options: Record<string, any>, field: protobuf.Field): MapConstraintOps | null {
+  const ops: MapConstraintOps = {};
+  const prefixes = ["(buf.validate.field).map.", "(buf.validate.field).map_val."]; // support legacy
+  let foundAny = false;
+  for (const [key, value] of Object.entries(options)) {
+    const prefix = prefixes.find((p) => key.startsWith(p));
+    if (!prefix) continue;
+    foundAny = true;
+    const ruleName = key.slice(prefix.length);
+    switch (ruleName) {
+      case "min_pairs": ops.min_pairs = Number(value); break;
+      case "max_pairs": ops.max_pairs = Number(value); break;
+    }
+  }
+
+  // Nested key/value rules
+  const keyPrefixes = ["(buf.validate.field).map.keys.", "(buf.validate.field).map_val.keys."];
+  const valPrefixes = ["(buf.validate.field).map.values.", "(buf.validate.field).map_val.values."];
+
+  const keyType = (field as any).keyType as string | undefined;
+  const valType = field.type as string;
+  const resolved = (field as any).resolvedType as any;
+
+  // Keys (only string/numeric are valid key types in protobuf)
+  if (keyType === 'string') {
+    const kOps = extractProtovalidateStringRulesWithBase(options, keyPrefixes.map(p => p + 'string.'));
+    if (kOps) {
+      ops.keys = { kind: 'string', ops: kOps };
+      foundAny = true;
+    }
+  } else if (typeof keyType === 'string') {
+    const numPrefixes: string[] = keyPrefixes.map(p => p + keyType + '.');
+    const kOps = extractProtovalidateNumberRulesWithBase(options, keyType, numPrefixes);
+    if (kOps) {
+      ops.keys = { kind: 'number', ops: kOps };
+      foundAny = true;
+    }
+  }
+
+  // Values (can be scalar, enum, or certain WKTs)
+  if (valType === 'string') {
+    const vOps = extractProtovalidateStringRulesWithBase(options, valPrefixes.map(p => p + 'string.'));
+    if (vOps) { ops.values = { kind: 'string', ops: vOps }; foundAny = true; }
+  } else if (valType === 'bytes') {
+    const vOps = extractProtovalidateBytesRulesWithBase(options, valPrefixes.map(p => p + 'bytes.'));
+    if (vOps) { ops.values = { kind: 'bytes', ops: vOps }; foundAny = true; }
+  } else if ([
+    'int32','int64','uint32','uint64','sint32','sint64','fixed32','fixed64','sfixed32','sfixed64','float','double'
+  ].includes(valType)) {
+    const vOps = extractProtovalidateNumberRulesWithBase(options, valType, valPrefixes.map(p => p + valType + '.'));
+    if (vOps) { ops.values = { kind: 'number', ops: vOps }; foundAny = true; }
+  } else if (valType === 'google.protobuf.Timestamp' || valType.endsWith('.Timestamp')) {
+    const vOps = extractProtovalidateTimestampRulesWithBase(options, valPrefixes.map(p => p + 'timestamp.'));
+    if (vOps) { ops.values = { kind: 'timestamp', ops: vOps }; foundAny = true; }
+  } else if (valType === 'google.protobuf.Duration' || valType.endsWith('.Duration')) {
+    const vOps = extractProtovalidateDurationRulesWithBase(options, valPrefixes.map(p => p + 'duration.'));
+    if (vOps) { ops.values = { kind: 'duration', ops: vOps }; foundAny = true; }
+  } else if (valType === 'google.protobuf.Any' || valType.endsWith('.Any')) {
+    const vOps = extractProtovalidateAnyRulesWithBase(options, valPrefixes.map(p => p + 'any.'));
+    if (vOps) { ops.values = { kind: 'any', ops: vOps }; foundAny = true; }
+  } else if (resolved && resolved instanceof protobuf.Enum) {
+    const vOps = extractEnumRulesWithBase(options, valPrefixes.map(p => p + 'enum.'));
+    if (vOps) { ops.values = { kind: 'enum', ops: vOps }; foundAny = true; }
+  }
+
+  return foundAny ? ops : null;
+}
+
+function extractProtovalidateTimestampRules(options: Record<string, any>): TimestampConstraintOps | null {
+  const ops: TimestampConstraintOps = {};
+  const prefixes = ["(buf.validate.field).timestamp.", "(buf.validate.field).timestamp_val."]; // support legacy
+  let foundAny = false;
+  for (const [key, value] of Object.entries(options)) {
+    const prefix = prefixes.find((p) => key.startsWith(p));
+    if (!prefix) continue;
+    foundAny = true;
+    const ruleName = key.slice(prefix.length);
+    switch (ruleName) {
+      case "const": ops.const = value as any; break;
+      case "lt": ops.lt = value as any; break;
+      case "lte": ops.lte = value as any; break;
+      case "gt": ops.gt = value as any; break;
+      case "gte": ops.gte = value as any; break;
+      case "lt_now": ops.lt_now = Boolean(value); break;
+      case "gt_now": ops.gt_now = Boolean(value); break;
+      case "within": ops.within = String(value); break;
+    }
+  }
+  return foundAny ? ops : null;
+}
+
+function extractProtovalidateDurationRules(options: Record<string, any>): DurationConstraintOps | null {
+  const ops: DurationConstraintOps = {};
+  const prefixes = ["(buf.validate.field).duration.", "(buf.validate.field).duration_val."]; // support legacy
+  let foundAny = false;
+  for (const [key, value] of Object.entries(options)) {
+    const prefix = prefixes.find((p) => key.startsWith(p));
+    if (!prefix) continue;
+    foundAny = true;
+    const ruleName = key.slice(prefix.length);
+    switch (ruleName) {
+      case "const": ops.const = value as any; break;
+      case "lt": ops.lt = value as any; break;
+      case "lte": ops.lte = value as any; break;
+      case "gt": ops.gt = value as any; break;
+      case "gte": ops.gte = value as any; break;
+      case "within": ops.within = String(value); break;
+    }
+  }
+  return foundAny ? ops : null;
+}
+
+function extractProtovalidateAnyRules(options: Record<string, any>): AnyConstraintOps | null {
+  const ops: AnyConstraintOps = {};
+  const prefixes = ["(buf.validate.field).any.", "(buf.validate.field).any_val."]; // support legacy
+  let foundAny = false;
+  for (const [key, value] of Object.entries(options)) {
+    const prefix = prefixes.find((p) => key.startsWith(p));
+    if (!prefix) continue;
+    foundAny = true;
+    const ruleName = key.slice(prefix.length);
+    switch (ruleName) {
+      case "in":
+        if (Array.isArray(value)) ops.in = value.map(String);
+        else if (value !== undefined) ops.in = [String(value)];
+        break;
+      case "not_in":
+        if (Array.isArray(value)) ops.not_in = value.map(String);
+        else if (value !== undefined) ops.not_in = [String(value)];
+        break;
+    }
+  }
+  return foundAny ? ops : null;
+}
+
 // ============ CEL Expression Support ============
 
 function extractCelExpression(options: Record<string, any>): FieldConstraint | null {
@@ -363,6 +712,72 @@ export function extractFieldRules(field: protobuf.Field, source: ValidationSourc
       fieldType,
       source: 'protovalidate',
     };
+  }
+
+  // Protovalidate: bytes
+  if (allowProtovalidate && fieldType === 'bytes') {
+    const bytesOps = extractProtovalidateBytesRules(field.options);
+    if (bytesOps) {
+      return {
+        kind: 'bytes',
+        ops: bytesOps,
+        fieldPath,
+        fieldType,
+        source: 'protovalidate',
+      };
+    }
+  }
+
+  // Protovalidate: map<K,V>
+  if (allowProtovalidate && (field as any).map) {
+    const mapOps = extractProtovalidateMapRules(field.options, field);
+    if (mapOps) {
+      return {
+        kind: 'map',
+        ops: mapOps,
+        fieldPath,
+        fieldType,
+        source: 'protovalidate',
+      };
+    }
+  }
+
+  // Protovalidate: Timestamp / Duration / Any
+  if (allowProtovalidate) {
+    if (fieldType === 'google.protobuf.Timestamp' || fieldType.endsWith('.Timestamp')) {
+      const tsOps = extractProtovalidateTimestampRules(field.options);
+      if (tsOps) {
+        return {
+          kind: 'timestamp',
+          ops: tsOps,
+          fieldPath,
+          fieldType,
+          source: 'protovalidate',
+        };
+      }
+    } else if (fieldType === 'google.protobuf.Duration' || fieldType.endsWith('.Duration')) {
+      const durOps = extractProtovalidateDurationRules(field.options);
+      if (durOps) {
+        return {
+          kind: 'duration',
+          ops: durOps,
+          fieldPath,
+          fieldType,
+          source: 'protovalidate',
+        };
+      }
+    } else if (fieldType === 'google.protobuf.Any' || fieldType.endsWith('.Any')) {
+      const anyOps = extractProtovalidateAnyRules(field.options);
+      if (anyOps) {
+        return {
+          kind: 'any',
+          ops: anyOps,
+          fieldPath,
+          fieldType,
+          source: 'protovalidate',
+        };
+      }
+    }
   }
 
   // Fall back to PGV validation (when allowed)

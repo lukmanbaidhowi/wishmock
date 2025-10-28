@@ -1,6 +1,7 @@
 import { describe, it, expect } from "bun:test";
 import { validate } from "../src/domain/validation/engine.js";
 import type { ValidationIR, StringConstraintOps, NumberConstraintOps } from "../src/domain/validation/types.js";
+import type { BytesConstraintOps, MapConstraintOps, TimestampConstraintOps, DurationConstraintOps, AnyConstraintOps } from "../src/domain/validation/types.js";
 
 describe("Validator Engine (Fase 3)", () => {
   describe("String validation", () => {
@@ -468,6 +469,118 @@ describe("Validator Engine (Fase 3)", () => {
   });
 });
 
+describe("Validation Engine - Bytes", () => {
+  it("validates bytes length and pattern", () => {
+    const ir: ValidationIR = {
+      typeName: "test.BytesMessage",
+      fields: new Map([
+        ["payload", {
+          kind: "bytes",
+          ops: { min_len: 4, pattern: "^hello" } as BytesConstraintOps,
+          fieldPath: "payload",
+          fieldType: "bytes",
+          source: "protovalidate",
+        }]
+      ])
+    };
+
+    const ok = validate(ir, { payload: Buffer.from("hello world") });
+    expect(ok.ok).toBe(true);
+
+    const bad = validate(ir, { payload: Buffer.from("hey") });
+    expect(bad.ok).toBe(false);
+    if (!bad.ok) expect(bad.violations.length).toBeGreaterThan(0);
+  });
+});
+
+describe("Validation Engine - Map", () => {
+  it("validates map pair counts", () => {
+    const ir: ValidationIR = {
+      typeName: "test.MapMessage",
+      fields: new Map([
+        ["labels", {
+          kind: "map",
+          ops: { min_pairs: 1, max_pairs: 2 } as MapConstraintOps,
+          fieldPath: "labels",
+          fieldType: "map<string,string>",
+          source: "protovalidate",
+        }]
+      ])
+    };
+
+    expect(validate(ir, { labels: { a: "1" } }).ok).toBe(true);
+    expect(validate(ir, { labels: {} }).ok).toBe(false);
+    expect(validate(ir, { labels: { a: "1", b: "2", c: "3" } }).ok).toBe(false);
+  });
+});
+
+describe("Validation Engine - Timestamp", () => {
+  it("validates lt_now and within", () => {
+    const ir: ValidationIR = {
+      typeName: "test.TimestampMessage",
+      fields: new Map([
+        ["ts", {
+          kind: "timestamp",
+          ops: { lt_now: true, within: "2h" } as TimestampConstraintOps,
+          fieldPath: "ts",
+          fieldType: "google.protobuf.Timestamp",
+          source: "protovalidate",
+        }]
+      ])
+    };
+
+    const oneHourAgo = { seconds: Math.floor((Date.now() - 3600_000) / 1000), nanos: 0 };
+    expect(validate(ir, { ts: oneHourAgo }).ok).toBe(true);
+
+    const threeHoursAgo = { seconds: Math.floor((Date.now() - 3 * 3600_000) / 1000), nanos: 0 };
+    const res = validate(ir, { ts: threeHoursAgo });
+    expect(res.ok).toBe(false);
+  });
+});
+
+describe("Validation Engine - Duration", () => {
+  it("validates duration comparisons", () => {
+    const ir: ValidationIR = {
+      typeName: "test.DurationMessage",
+      fields: new Map([
+        ["d", {
+          kind: "duration",
+          ops: { gt: "500ms", lte: "2s" } as DurationConstraintOps,
+          fieldPath: "d",
+          fieldType: "google.protobuf.Duration",
+          source: "protovalidate",
+        }]
+      ])
+    };
+
+    const ok = validate(ir, { d: { seconds: 1, nanos: 0 } });
+    expect(ok.ok).toBe(true);
+    const bad = validate(ir, { d: { seconds: 3, nanos: 0 } });
+    expect(bad.ok).toBe(false);
+  });
+});
+
+describe("Validation Engine - Any", () => {
+  it("validates type_url in/not_in", () => {
+    const ir: ValidationIR = {
+      typeName: "test.AnyMessage",
+      fields: new Map([
+        ["a", {
+          kind: "any",
+          ops: { in: ["type.googleapis.com/foo.Bar"], not_in: ["type.googleapis.com/bad.Type"] } as AnyConstraintOps,
+          fieldPath: "a",
+          fieldType: "google.protobuf.Any",
+          source: "protovalidate",
+        }]
+      ])
+    };
+
+    expect(validate(ir, { a: { type_url: "type.googleapis.com/foo.Bar", value: Buffer.alloc(0) } }).ok).toBe(true);
+    expect(validate(ir, { a: { type_url: "type.googleapis.com/bad.Type", value: Buffer.alloc(0) } }).ok).toBe(false);
+    expect(validate(ir, { a: { type_url: "type.googleapis.com/other", value: Buffer.alloc(0) } }).ok).toBe(false);
+  });
+});
+
 describe("Validation Engine - CEL Expressions", () => {
   it("should validate CEL expression success", () => {
     const ir: ValidationIR = {
@@ -481,7 +594,7 @@ describe("Validation Engine - CEL Expressions", () => {
           },
           fieldPath: "age",
           fieldType: "int32",
-          source: "buf",
+          source: "protovalidate",
         }]
       ])
     };
@@ -504,7 +617,7 @@ describe("Validation Engine - CEL Expressions", () => {
           },
           fieldPath: "age",
           fieldType: "int32",
-          source: "buf",
+          source: "protovalidate",
         }]
       ])
     };
@@ -530,7 +643,7 @@ describe("Validation Engine - CEL Expressions", () => {
           },
           fieldPath: "range_check",
           fieldType: "bool",
-          source: "buf",
+          source: "protovalidate",
         }]
       ])
     };
@@ -553,7 +666,7 @@ describe("Validation Engine - CEL Expressions", () => {
           },
           fieldPath: "range_check",
           fieldType: "bool",
-          source: "buf",
+          source: "protovalidate",
         }]
       ])
     };
@@ -580,7 +693,7 @@ describe("Validation Engine - Enum Validation", () => {
           },
           fieldPath: "status",
           fieldType: "enum",
-          source: "buf",
+          source: "protovalidate",
         }]
       ])
     };
@@ -602,7 +715,7 @@ describe("Validation Engine - Enum Validation", () => {
           },
           fieldPath: "status",
           fieldType: "enum",
-          source: "buf",
+          source: "protovalidate",
         }]
       ])
     };
@@ -627,7 +740,7 @@ describe("Validation Engine - Enum Validation", () => {
           },
           fieldPath: "status",
           fieldType: "enum",
-          source: "buf",
+          source: "protovalidate",
         }]
       ])
     };
@@ -649,7 +762,7 @@ describe("Validation Engine - Enum Validation", () => {
           },
           fieldPath: "status",
           fieldType: "enum",
-          source: "buf",
+          source: "protovalidate",
         }]
       ])
     };
@@ -674,7 +787,7 @@ describe("Validation Engine - Enum Validation", () => {
           },
           fieldPath: "status",
           fieldType: "enum",
-          source: "buf",
+          source: "protovalidate",
         }]
       ])
     };
@@ -696,7 +809,7 @@ describe("Validation Engine - Enum Validation", () => {
           },
           fieldPath: "status",
           fieldType: "enum",
-          source: "buf",
+          source: "protovalidate",
         }]
       ])
     };
@@ -707,4 +820,3 @@ describe("Validation Engine - Enum Validation", () => {
     expect(result.ok).toBe(true);
   });
 });
-

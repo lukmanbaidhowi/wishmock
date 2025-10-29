@@ -50,6 +50,7 @@ describe("createGrpcServer", () => {
                 SayHello: {
                   requestType: "example.HelloRequest",
                   responseType: "example.HelloReply",
+                  comment: ""
                 },
               },
             },

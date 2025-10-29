@@ -12,6 +12,27 @@ import { makeInvalidArgError } from "../domain/validation/errors.js";
 
 type RulesIndex = Map<string, RuleDoc>;
 
+function getValidatorFor(type: protobuf.Type) {
+  return validationRuntime.getValidator(type.fullName || type.name);
+}
+
+function validateOrFail(type: protobuf.Type, message: unknown, fail: (err: any) => void): boolean {
+  if (!validationRuntime.active()) return true;
+  const validator = getValidatorFor(type);
+  if (!validator) return true;
+  try {
+    const result = validator(message);
+    if (!result.ok) {
+      fail(makeInvalidArgError(result.violations));
+      return false;
+    }
+    return true;
+  } catch (ve) {
+    fail({ code: grpc.status.INTERNAL, message: (ve as any)?.message || 'validation error' } as any);
+    return false;
+  }
+}
+
 export interface HandlerMeta {
   pkg: string;
   serviceName: string;
@@ -65,24 +86,7 @@ export function buildHandlersFromRoot(rootNamespace: protobuf.Root, rulesIndex: 
             const reqObj = call.request as unknown;
             const md = metadataToRecord(call.metadata);
             const rule = rulesIndex.get(ruleKey);
-            // Validation (unary request)
-            try {
-              if (validationRuntime.active()) {
-                const typeKey = reqType.fullName || reqType.name;
-                const validator = validationRuntime.getValidator(typeKey);
-                if (validator) {
-                  const result = validator(reqObj);
-                  if (!result.ok) {
-                    callback(makeInvalidArgError(result.violations));
-                    return;
-                  }
-                }
-              }
-            } catch (ve) {
-              // If validation throws for any reason, treat as internal error
-              callback({ code: grpc.status.INTERNAL, message: (ve as any)?.message || 'validation error' } as any);
-              return;
-            }
+            if (!validateOrFail(reqType, reqObj, (e) => callback(e as any))) return;
             respondUnary(rule, reqObj, md, resType, callback, err, call);
           };
         } else if (!requestStream && responseStream) {
@@ -90,22 +94,7 @@ export function buildHandlersFromRoot(rootNamespace: protobuf.Root, rulesIndex: 
             const reqObj = call.request as unknown;
             const md = metadataToRecord(call.metadata);
             const rule = rulesIndex.get(ruleKey);
-            // Validation (unary request → server streaming response)
-            try {
-              if (validationRuntime.active()) {
-                const validator = validationRuntime.getValidator(reqType.fullName || reqType.name);
-                if (validator) {
-                  const result = validator(reqObj);
-                  if (!result.ok) {
-                    call.emit('error', makeInvalidArgError(result.violations));
-                    return;
-                  }
-                }
-              }
-            } catch (ve) {
-              call.emit('error', { code: grpc.status.INTERNAL, message: (ve as any)?.message || 'validation error' });
-              return;
-            }
+            if (!validateOrFail(reqType, reqObj, (e) => call.emit('error', e))) return;
             handleStreamingResponses(call, rule, reqObj, md, resType, err);
           };
         } else if (requestStream && !responseStream) {
@@ -115,19 +104,7 @@ export function buildHandlersFromRoot(rootNamespace: protobuf.Root, rulesIndex: 
             call.on("data", (chunk) => {
               // Validate each incoming message in per_message mode
               if (validationRuntime.active() && validationRuntime.mode() === 'per_message') {
-                try {
-                  const validator = validationRuntime.getValidator(reqType.fullName || reqType.name);
-                  if (validator) {
-                    const result = validator(chunk);
-                    if (!result.ok) {
-                      call.emit('error', makeInvalidArgError(result.violations));
-                      return;
-                    }
-                  }
-                } catch (ve) {
-                  call.emit('error', { code: grpc.status.INTERNAL, message: (ve as any)?.message || 'validation error' });
-                  return;
-                }
+                if (!validateOrFail(reqType, chunk, (e) => call.emit('error', e))) return;
               }
               messages.push(chunk);
             });
@@ -138,20 +115,8 @@ export function buildHandlersFromRoot(rootNamespace: protobuf.Root, rulesIndex: 
               if ((call as any).cancelled) return;
               // Aggregate mode: validate after stream end against full batch (simple per-message pass-through for now)
               if (validationRuntime.active() && validationRuntime.mode() === 'aggregate') {
-                try {
-                  const validator = validationRuntime.getValidator(reqType.fullName || reqType.name);
-                  if (validator) {
-                    for (const m of messages) {
-                      const result = validator(m);
-                      if (!result.ok) {
-                        callback(makeInvalidArgError(result.violations));
-                        return;
-                      }
-                    }
-                  }
-                } catch (ve) {
-                  callback({ code: grpc.status.INTERNAL, message: (ve as any)?.message || 'validation error' } as any);
-                  return;
+                for (const m of messages) {
+                  if (!validateOrFail(reqType, m, (e) => callback(e as any))) return;
                 }
               }
               const reqObj = buildStreamRequest(messages);
@@ -166,19 +131,7 @@ export function buildHandlersFromRoot(rootNamespace: protobuf.Root, rulesIndex: 
             call.on("data", (chunk) => {
               // Validate each incoming message in per_message mode
               if (validationRuntime.active() && validationRuntime.mode() === 'per_message') {
-                try {
-                  const validator = validationRuntime.getValidator(reqType.fullName || reqType.name);
-                  if (validator) {
-                    const result = validator(chunk);
-                    if (!result.ok) {
-                      call.emit('error', makeInvalidArgError(result.violations));
-                      return;
-                    }
-                  }
-                } catch (ve) {
-                  call.emit('error', { code: grpc.status.INTERNAL, message: (ve as any)?.message || 'validation error' });
-                  return;
-                }
+                if (!validateOrFail(reqType, chunk, (e) => call.emit('error', e))) return;
               }
               messages.push(chunk);
             });
@@ -188,20 +141,8 @@ export function buildHandlersFromRoot(rootNamespace: protobuf.Root, rulesIndex: 
             call.on("end", () => {
               if ((call as any).cancelled) return;
               if (validationRuntime.active() && validationRuntime.mode() === 'aggregate') {
-                try {
-                  const validator = validationRuntime.getValidator(reqType.fullName || reqType.name);
-                  if (validator) {
-                    for (const m of messages) {
-                      const result = validator(m);
-                      if (!result.ok) {
-                        call.emit('error', makeInvalidArgError(result.violations));
-                        return;
-                      }
-                    }
-                  }
-                } catch (ve) {
-                  call.emit('error', { code: grpc.status.INTERNAL, message: (ve as any)?.message || 'validation error' });
-                  return;
+                for (const m of messages) {
+                  if (!validateOrFail(reqType, m, (e) => call.emit('error', e))) return;
                 }
               }
               const reqObj = buildStreamRequest(messages);

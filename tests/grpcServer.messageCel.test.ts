@@ -37,6 +37,7 @@ describe("gRPC Server - Message-level CEL enforcement (Protovalidate)", () => {
                 Check: {
                   requestType: "example.BufMessageCel",
                   responseType: "example.HelloReply",
+                  comment: "",
                 },
               },
             },

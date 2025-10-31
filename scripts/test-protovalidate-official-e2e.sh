@@ -11,15 +11,16 @@ export VALIDATION_CEL_MESSAGE=experimental
 
 HTTP_PORT=${HTTP_PORT:-3000}
 GRPC_PORT_PLAINTEXT=${GRPC_PORT_PLAINTEXT:-50050}
+TIMEOUT=${TIMEOUT:-30}
 
 echo "Starting server..."
 bun run start >/tmp/wishmock-e2e.log 2>&1 &
 PID=$!
 cleanup() { kill $PID || true; }; trap cleanup EXIT
 
-# Wait for readiness
-for i in {1..30}; do
-  if curl -sf "http://localhost:${HTTP_PORT}/liveness" >/dev/null; then
+# Wait for readiness (bounded by TIMEOUT)
+for i in $(seq 1 $((TIMEOUT*3))); do
+  if curl --max-time 2 -sf "http://localhost:${HTTP_PORT}/liveness" >/dev/null; then
     break
   fi
   sleep 0.3
@@ -29,7 +30,7 @@ echo "Server ready. Running grpcurl checks..."
 
 # Expect INVALID_ARGUMENT on invalid BufMessageCel (min >= max)
 set +e
-grpcurl -plaintext -d '{"min_value":10,"max_value":5}' localhost:${GRPC_PORT_PLAINTEXT} helloworld.Greeter/BufMessageCelCheck
+timeout "${TIMEOUT}s" grpcurl -plaintext -d '{"min_value":10,"max_value":5}' localhost:${GRPC_PORT_PLAINTEXT} helloworld.Greeter/BufMessageCelCheck
 RC=$?
 set -e
 if [ "$RC" -eq 0 ]; then
@@ -38,6 +39,6 @@ if [ "$RC" -eq 0 ]; then
 fi
 
 # Expect success for valid BufMessageCel
-grpcurl -plaintext -d '{"min_value":1,"max_value":2}' localhost:${GRPC_PORT_PLAINTEXT} helloworld.Greeter/BufMessageCelCheck >/dev/null
+timeout "${TIMEOUT}s" grpcurl -plaintext -d '{"min_value":1,"max_value":2}' localhost:${GRPC_PORT_PLAINTEXT} helloworld.Greeter/BufMessageCelCheck >/dev/null
 
 echo "E2E passed"

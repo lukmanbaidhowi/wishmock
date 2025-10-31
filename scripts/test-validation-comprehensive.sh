@@ -103,7 +103,7 @@ run_validation_test() {
   
   set +e
   local output
-  output=$(grpcurl -plaintext -d "$json_data" "localhost:${GRPC_PORT}" "$service_method" 2>&1)
+  output=$(timeout "${TIMEOUT}s" grpcurl -plaintext -d "$json_data" "localhost:${GRPC_PORT}" "$service_method" 2>&1)
   local exit_code=$?
   set -e
   

@@ -257,14 +257,9 @@ export default function wrapServerWithReflection(server: grpc.Server, opts?: { p
   // We rely on proto-loader harvested FileDescriptorProtos to preserve original
   // file names and dependency lists so grpcurl can resolve imports correctly.
 
-  function collectDescriptorsFromService(serviceDef: Record<string, any>) {
-    for (const def of Object.values(serviceDef)) {
-      const req = (def as any)?.requestType?.fileDescriptorProtos as Buffer[] | undefined;
-      const res = (def as any)?.responseType?.fileDescriptorProtos as Buffer[] | undefined;
-      if (Array.isArray(req)) for (const b of req) addFdpBuffer(b);
-      if (Array.isArray(res)) for (const b of res) addFdpBuffer(b);
-    }
-  }
+  // We avoid harvesting descriptors from service definitions (proto-loader),
+  // to rely solely on protoc-generated descriptors for correctness.
+  function collectDescriptorsFromService(_serviceDef: Record<string, any>) {/* no-op */}
 
   const serverProxy = new Proxy(server as any, {
     get(target, prop, receiver) {
@@ -393,152 +388,8 @@ export default function wrapServerWithReflection(server: grpc.Server, opts?: { p
           call.write({ listServicesResponse: { service: names } });
         }
         if (fileContainingSymbol) {
-          // Primary path: mirror upstream library and return the full descriptor list
-          // attached to the matched method's requestType.
-          try {
-            const method = getMethodDefinitionFromServicesByFileContainingSymbol(services, fileContainingSymbol);
-            const files = (method as any)?.requestType?.fileDescriptorProtos as Uint8Array[] | undefined;
-            if (Array.isArray(files) && files.length) {
-              const originalBuffers = files.map(b => Buffer.from(b));
-              const decoded: { f: any, buf: Uint8Array }[] = [];
-              const presentNames = new Set<string>();
-              const fileByPkg = new Map<string, string>();
-              for (const b of originalBuffers) {
-                const f = decodeFdpSafe(b);
-                decoded.push({ f, buf: b });
-                if (f) {
-                  const nm = String(f.getName?.());
-                  const pkg = String((f as any).getPackage?.() || '');
-                  presentNames.add(nm);
-                  if (pkg) fileByPkg.set(pkg, nm);
-                }
-              }
-              const remapped: Uint8Array[] = [];
-              for (const { f, buf } of decoded) {
-                if (!f) { remapped.push(buf); continue; }
-                try {
-                  normalizeConsolidatedFile(f);
-                  const fileName = String(f.getName?.() || '');
-                  let deps = f.getDependencyList?.() || [];
-                  if (!deps || deps.length === 0) {
-                    const inferred = new Set<string>(inferDepsFromTypes(fileName, f));
-                    // Also infer deps by package ownership of referenced types
-                    try {
-                      for (const m of (f.getMessageTypeList?.() || [])) {
-                        for (const fld of (((m as any).getFieldList?.()) || [])) {
-                          const tnRaw = typeof (fld as any).getTypeName === 'function' ? String((fld as any).getTypeName()) : '';
-                          const tn = tnRaw.replace(/^\./, '');
-                          const pkg = tn.includes('.') ? tn.split('.').slice(0, -1).join('.') : '';
-                          if (pkg && fileByPkg.has(pkg)) {
-                            const depFile = fileByPkg.get(pkg)!;
-                            if (depFile && depFile !== fileName) inferred.add(depFile);
-                          }
-                        }
-                      }
-                      // Also infer from service method request/response types
-                      for (const svc of (f.getServiceList?.() || [])) {
-                        for (const meth of (((svc as any).getMethodList?.()) || [])) {
-                          const inRaw = typeof (meth as any).getInputType === 'function' ? String((meth as any).getInputType()) : '';
-                          const outRaw = typeof (meth as any).getOutputType === 'function' ? String((meth as any).getOutputType()) : '';
-                          const addType = (raw: string) => {
-                            const tn = raw.replace(/^\./, '');
-                            const pkg = tn.includes('.') ? tn.split('.').slice(0, -1).join('.') : '';
-                            if (pkg && fileByPkg.has(pkg)) {
-                              const depFile = fileByPkg.get(pkg)!;
-                              if (depFile && depFile !== fileName) inferred.add(depFile);
-                            }
-                          };
-                          if (inRaw) addType(inRaw);
-                          if (outRaw) addType(outRaw);
-                        }
-                      }
-                    } catch {}
-                    deps = Array.from(inferred);
-                  }
-                  const mapped = deps.map((d: string) => canonicalizeDependency(d, presentNames));
-                  if (typeof (f as any).setDependencyList === 'function') (f as any).setDependencyList(mapped);
-                  remapped.push((f as any).serializeBinary());
-                } catch { remapped.push(buf); }
-              }
-              // Ensure the consolidated google_* files are present before dependents.
-              const byName = new Map<string, Uint8Array>();
-              const order: string[] = [];
-              for (const b of remapped) {
-                try { const f = FileDescriptorProto.deserializeBinary(b); const n = f.getName(); if (!byName.has(n)) { byName.set(n, b); order.push(n); } } catch {}
-              }
-              const preferred: string[] = ['google_protobuf.proto','google_type.proto','google_api.proto','google_rpc.proto'];
-              const finalNames = [...preferred.filter(n => byName.has(n)), ...order.filter(n => !preferred.includes(n))];
-              const out = finalNames.map(n => byName.get(n)!).filter(Boolean) as Uint8Array[];
-              if (DEBUG) {
-                try {
-                  const outNames: string[] = [];
-                  const depsFor: Record<string, string[]> = {};
-                  const pkgFor: Record<string, string> = {};
-                  const typeRefs: Record<string, string[]> = {};
-                  const wktInfo: any = {};
-                  for (const b of out) {
-                    try {
-                      const x = FileDescriptorProto.deserializeBinary(b as any);
-                      const nm = x.getName();
-                      outNames.push(nm);
-                      pkgFor[nm] = String((x as any).getPackage?.() || '');
-                      if (nm && !depsFor[nm]) depsFor[nm] = x.getDependencyList();
-                      if (nm === 'google_protobuf.proto') {
-                        const names = (x.getMessageTypeList?.() || []).map((m: any) => m.getName?.());
-                        wktInfo.messages = names;
-                        const enums = (x.getEnumTypeList?.() || []).map((e: any) => e.getName?.());
-                        wktInfo.enums = enums;
-                      }
-                      if (nm === 'google_type.proto') {
-                        const refs: string[] = [];
-                        for (const m of (x.getMessageTypeList?.() || [])) {
-                          try {
-                            for (const f of ((((m as any).getFieldList?.()) || []))) {
-                              const tn = typeof f.getTypeName === 'function' ? f.getTypeName() : '';
-                              if (tn) refs.push(String(tn));
-                            }
-                          } catch {}
-                        }
-                        typeRefs[nm] = refs;
-                      }
-                    } catch {}
-                  }
-                  console.log('[wishmock] (debug) Reflection describe (method set+remap):', {
-                    symbol: fileContainingSymbol,
-                    returned: out.length,
-                    files: outNames,
-                    deps: depsFor,
-                    pkgs: pkgFor,
-                    wkt: wktInfo,
-                    refs: typeRefs,
-                  });
-                } catch {}
-              }
-              call.write({ fileDescriptorResponse: { fileDescriptorProto: out } });
-              return;
-            }
-          } catch {}
-          // Return the full set of descriptors for broad compatibility with grpcurl
-          // and other tools that expect a complete descriptor pool. This sidesteps
-          // dependency list issues in protobufjs-generated descriptors.
-          if (fileDescriptorSet.size > 0) {
-            const files = Array.from(fileDescriptorSet).map((b64) => Buffer.from(b64, "base64"));
-            if (DEBUG) {
-              try {
-                const names: string[] = [];
-                for (const b of files) {
-                  try { names.push(FileDescriptorProto.deserializeBinary(b).getName()); } catch {}
-                }
-                console.log("[wishmock] (debug) Reflection describe (full set):", {
-                  symbol: fileContainingSymbol,
-                  returned: files.length,
-                  files: names,
-                });
-              } catch {}
-            }
-            call.write({ fileDescriptorResponse: { fileDescriptorProto: files } });
-            return;
-          }
+          // Resolve using protoc-generated descriptors only. Build a dependency-closed set
+          // starting from the file that defines the symbol.
           if (indexDirty) rebuildIndex();
           const target = symbolToFile.get(fileContainingSymbol);
           if (!target) {
@@ -596,17 +447,7 @@ export default function wrapServerWithReflection(server: grpc.Server, opts?: { p
               }
             } catch {}
           }
-          // Optionally include all known files if some deps could not be resolved.
-          if (missingDeps.length) {
-            try {
-              const all = Array.from(fileDescriptorSet).map((b64) => canonicalizeBuf(Buffer.from(b64, "base64")));
-              const seen = new Set<string>(result.map((b) => Buffer.from(b).toString("base64")));
-              for (const b of all) {
-                const k = Buffer.from(b).toString("base64");
-                if (!seen.has(k)) result.push(b);
-              }
-            } catch {}
-          }
+          // Do not inflate with all known files; keep the dependency-closed set minimal.
           if (process.env.DEBUG_REFLECTION === "1") {
             try {
               // eslint-disable-next-line no-console

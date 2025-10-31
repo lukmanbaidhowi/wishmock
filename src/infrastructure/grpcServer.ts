@@ -18,11 +18,19 @@ function getValidatorFor(type: protobuf.Type) {
 }
 
 function validateOrFail(type: protobuf.Type, message: unknown, fail: (err: any) => void): boolean {
-  if (!validationRuntime.active()) return true;
+  const debug = String(process.env.DEBUG_VALIDATION || '') === '1';
+  if (!validationRuntime.active()) {
+    try { require('fs').appendFileSync('/tmp/validation.trace', `[inactive] ${new Date().toISOString()} type=${type.fullName || type.name}\n`); } catch {}
+    if (debug) console.log('[validation][debug] inactive runtime; skipping validation');
+    return true;
+  }
   const validator = getValidatorFor(type);
+  try { require('fs').appendFileSync('/tmp/validation.trace', `[check] ${new Date().toISOString()} type=${type.fullName || type.name} hasValidator=${!!validator}\n`); } catch {}
+  if (debug) console.log('[validation][debug] type=', type.fullName || type.name, 'hasValidator=', !!validator);
   if (!validator) return true;
   try {
     const result = validator(message);
+    try { require('fs').appendFileSync('/tmp/validation.trace', `[result] ${new Date().toISOString()} ok=${result.ok}\n`); } catch {}
     if (!result.ok) {
       fail(makeInvalidArgError(result.violations));
       return false;
@@ -84,6 +92,7 @@ export function buildHandlersFromRoot(rootNamespace: protobuf.Root, rulesIndex: 
 
         if (!requestStream && !responseStream) {
           handler = (call: grpc.ServerUnaryCall<any, any>, callback: grpc.sendUnaryData<any>) => {
+            try { require('fs').appendFileSync('/tmp/validation.trace', `[handler] unary ${new Date().toISOString()} ${fqmn}\n`); } catch {}
             const reqObj = call.request as unknown;
             const md = metadataToRecord(call.metadata);
             const rule = rulesIndex.get(ruleKey);
@@ -92,6 +101,7 @@ export function buildHandlersFromRoot(rootNamespace: protobuf.Root, rulesIndex: 
           };
         } else if (!requestStream && responseStream) {
           handler = (call: grpc.ServerWritableStream<any, any>) => {
+            try { require('fs').appendFileSync('/tmp/validation.trace', `[handler] server-stream ${new Date().toISOString()} ${fqmn}\n`); } catch {}
             const reqObj = call.request as unknown;
             const md = metadataToRecord(call.metadata);
             const rule = rulesIndex.get(ruleKey);
@@ -100,6 +110,7 @@ export function buildHandlersFromRoot(rootNamespace: protobuf.Root, rulesIndex: 
           };
         } else if (requestStream && !responseStream) {
           handler = (call: grpc.ServerReadableStream<any, any>, callback: grpc.sendUnaryData<any>) => {
+            try { require('fs').appendFileSync('/tmp/validation.trace', `[handler] client-stream ${new Date().toISOString()} ${fqmn}\n`); } catch {}
             const md = metadataToRecord(call.metadata);
             const messages: unknown[] = [];
             call.on("data", (chunk) => {
@@ -127,6 +138,7 @@ export function buildHandlersFromRoot(rootNamespace: protobuf.Root, rulesIndex: 
           };
         } else {
           handler = (call: grpc.ServerDuplexStream<any, any>) => {
+            try { require('fs').appendFileSync('/tmp/validation.trace', `[handler] bidi ${new Date().toISOString()} ${fqmn}\n`); } catch {}
             const md = metadataToRecord(call.metadata);
             const messages: unknown[] = [];
             call.on("data", (chunk) => {

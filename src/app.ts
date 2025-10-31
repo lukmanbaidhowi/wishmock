@@ -37,6 +37,7 @@ let servicesMeta: Map<string, HandlerMeta> = new Map();
 let currentRoot: protobuf.Root | null = null;
 let protoReport: ProtoFileStatus[] = [];
 const rulesIndex = new Map<string, any>();
+let rebuildInProgress = false;
 
 // --- util: logging ---
 const log = (...a: any[]) => console.log("[wishmock]", ...a);
@@ -152,6 +153,9 @@ async function startGrpc(rootNamespace: protobuf.Root) {
 }
 
 async function rebuild(reason: string) {
+  rebuildInProgress = true;
+  const start = Date.now();
+  log(`[reload] ⏳ Rebuild start (reason: ${reason}) — readiness=not_ready`);
   try {
     // Regenerate descriptor set for reflection hot reload
     await regenerateDescriptors();
@@ -164,22 +168,34 @@ async function rebuild(reason: string) {
     const loaded = report.filter(r => r.status === "loaded").map(r => r.file);
     const skipped = report.filter(r => r.status === "skipped");
     await startGrpc(root);
-    log(`Rebuilt & restarted (reason: ${reason})`);
+    const dur = Date.now() - start;
+    log(`[reload] ✅ Rebuild complete in ${dur}ms (reason: ${reason}) — readiness=ready`);
     if (loaded.length) log(`Loaded protos: ${loaded.join(", ")}`);
     if (skipped.length) {
       for (const s of skipped) err(`Skipped proto: ${s.file} (${s.error || "unknown error"})`);
     }
-  } catch (e) {
-    err("Rebuild failed:", e);
+  } catch (e: any) {
+    const dur = Date.now() - start;
+    err(`[reload] ❌ Rebuild failed after ${dur}ms (reason: ${reason})`, e?.message || e);
     throw e;
+  } finally {
+    rebuildInProgress = false;
   }
 }
 
 function reloadRules() {
-  const fresh = loadRulesFromDisk(RULE_DIR);
-  rulesIndex.clear();
-  for (const [k, v] of fresh.entries()) rulesIndex.set(k, v);
-  log(`Loaded rules: ${[...rulesIndex.keys()].join(", ") || "(none)"}`);
+  const start = Date.now();
+  log(`[rules] ⏳ Reload start`);
+  try {
+    const fresh = loadRulesFromDisk(RULE_DIR);
+    rulesIndex.clear();
+    for (const [k, v] of fresh.entries()) rulesIndex.set(k, v);
+    const dur = Date.now() - start;
+    log(`[rules] ✅ Reload complete in ${dur}ms — total=${rulesIndex.size}`);
+  } catch (e) {
+    const dur = Date.now() - start;
+    err(`[rules] ❌ Reload failed after ${dur}ms`, e);
+  }
 }
 
 // --- initial boot ---
@@ -215,7 +231,7 @@ function reloadRules() {
 
   try {
     const ruleWatcher = chokidar.watch(RULE_DIR, watchOpts);
-    ruleWatcher.on("all", async () => { reloadRules(); log("Rules reloaded"); });
+    ruleWatcher.on("all", async () => { reloadRules(); });
     ruleWatcher.on("error", (e: unknown) => err("Watcher error (rules)", e));
   } catch (e) {
     err("Failed to start rule watcher; continuing without hot reload", e);
@@ -244,6 +260,7 @@ function reloadRules() {
         skipped: protoReport.filter(r => r.status === "skipped")
       }
     }),
+    getReadiness: () => !rebuildInProgress,
     listServices: () => {
       // Group HandlerMeta by service
       const byService = new Map<string, { pkg: string; service: string; methods: any[] }>();

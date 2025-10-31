@@ -13,7 +13,8 @@ import { makeInvalidArgError } from "../domain/validation/errors.js";
 type RulesIndex = Map<string, RuleDoc>;
 
 function getValidatorFor(type: protobuf.Type) {
-  return validationRuntime.getValidator(type.fullName || type.name);
+  const typeName = type.fullName || type.name;
+  return validationRuntime.getValidator(typeName);
 }
 
 function validateOrFail(type: protobuf.Type, message: unknown, fail: (err: any) => void): boolean {

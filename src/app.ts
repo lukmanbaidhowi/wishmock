@@ -1,5 +1,6 @@
 import fs from "fs";
 import path from "path";
+import { execSync } from "child_process";
 import chokidar from "chokidar";
 import * as grpc from "@grpc/grpc-js";
 import protobuf from "protobufjs";
@@ -41,6 +42,47 @@ const rulesIndex = new Map<string, any>();
 const log = (...a: any[]) => console.log("[wishmock]", ...a);
 const err = (...a: any[]) => console.error("[wishmock]", ...a);
 
+// --- util: descriptor generation ---
+async function regenerateDescriptors() {
+  try {
+    const scriptPath = path.resolve("scripts/generate-descriptor-set.sh");
+    if (!fs.existsSync(scriptPath)) {
+      log("(warn) Descriptor generation script not found; skipping reflection descriptor regeneration");
+      return;
+    }
+    
+    const descriptorPath = path.resolve('bin/.descriptors.bin');
+    
+    // Skip if descriptor exists and is up-to-date (optimization for Docker pre-baked descriptors)
+    // Only regenerate if proto files are newer than descriptor
+    if (fs.existsSync(descriptorPath)) {
+      const descriptorTime = fs.statSync(descriptorPath).mtimeMs;
+      const protoFiles = fs.readdirSync(PROTO_DIR)
+        .filter(f => f.endsWith('.proto'))
+        .map(f => path.join(PROTO_DIR, f));
+      
+      const hasNewerProto = protoFiles.some(f => {
+        try {
+          return fs.statSync(f).mtimeMs > descriptorTime;
+        } catch {
+          return false; // Skip files that can't be stat'd
+        }
+      });
+      
+      if (!hasNewerProto) {
+        log("✓ Reflection descriptor up-to-date");
+        return; // Skip regeneration
+      }
+    }
+    
+    log("Regenerating reflection descriptors...");
+    execSync(`bash "${scriptPath}"`, { stdio: 'pipe' });
+    log("✓ Reflection descriptors regenerated");
+  } catch (e: any) {
+    err("Failed to regenerate descriptors:", e?.message || e);
+  }
+}
+
 async function startGrpc(rootNamespace: protobuf.Root) {
   // Shutdown existing servers if any
   const shutdown = async (srv: grpc.Server | null) => srv ? new Promise<void>((resolve, reject) => srv.tryShutdown((e?: Error) => (e ? reject(e) : resolve()))) : Promise.resolve();
@@ -50,8 +92,8 @@ async function startGrpc(rootNamespace: protobuf.Root) {
   serverTls = null;
 
   // Build a server instance (handlers) once to capture services meta
-  // Reflection note: proto-loader/grpcurl has limitations with map fields.
-  // Exclude validation_examples.proto from reflection entry files to avoid crashes.
+  // Exclude validation_examples.proto from proto-loader due to map field limitations.
+  // It's still loaded via protobufjs, so validation rules work; reflection uses protoc descriptors.
   const entryFiles = protoReport
     .filter(r => r.status === "loaded")
     .map(r => path.join(PROTO_DIR, r.file))
@@ -111,6 +153,9 @@ async function startGrpc(rootNamespace: protobuf.Root) {
 
 async function rebuild(reason: string) {
   try {
+    // Regenerate descriptor set for reflection hot reload
+    await regenerateDescriptors();
+    
     const { root, report } = await loadProtos(PROTO_DIR);
     protoReport = report;
     currentRoot = root;

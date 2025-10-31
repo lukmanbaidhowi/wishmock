@@ -251,15 +251,15 @@ describe("Rule Extractor - Protovalidate (bytes/map/wkt)", () => {
     expect(c?.kind).toBe('timestamp');
     const ops = c?.ops as any;
     expect(ops.lt_now).toBe(true);
-    expect(ops.within).toBe("1h");
+    expect(ops.within).toEqual({seconds: 3600});
   });
 
   it("extracts duration rules", () => {
     const c = extractFieldRules(durType.fields["d"], 'protovalidate');
     expect(c?.kind).toBe('duration');
     const ops = c?.ops as any;
-    expect(ops.gt).toBe("500ms");
-    expect(ops.lte).toBe("2s");
+    expect(ops.gt).toEqual({nanos: 500000000});
+    expect(ops.lte).toEqual({seconds: 2});
   });
 
   it("extracts Any rules", () => {

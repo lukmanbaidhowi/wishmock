@@ -64,3 +64,7 @@ tmp/
 *.swp
 *.swo
 .eslintcache
+
+# Generated descriptor sets
+bin/.descriptors.bin
+bin/.tmp-descriptors/

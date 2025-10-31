@@ -42,6 +42,10 @@ class ValidationRuntime {
         validate(ir, msg, { enforceMessageCel: this.celMessageMode === 'experimental' })
       );
     }
+    
+    if (this.enabled && process.env.DEBUG_VALIDATION === '1') {
+      console.log('[validation] Loaded validators for types:', Array.from(this.validators.keys()).filter(t => !t.startsWith('buf.validate')));
+    }
   }
 
   isEnabled(): boolean { return this.enabled; }

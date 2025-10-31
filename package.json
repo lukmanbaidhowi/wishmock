@@ -35,8 +35,9 @@
   },
   "scripts": {
     "dev": "bun run start:develop",
-    "prestart": "bun run build",
+    "prestart": "bun run build && bun run descriptors:generate",
     "build": "tsc -p tsconfig.json && bun run build:frontend",
+    "descriptors:generate": "bash scripts/generate-descriptor-set.sh",
     "start": "bash scripts/start.sh",
     "build:watch": "tsc -w -p tsconfig.json",
     "start:develop": "bun scripts/dev.mjs",

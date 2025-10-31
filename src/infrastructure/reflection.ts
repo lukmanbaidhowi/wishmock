@@ -1,6 +1,7 @@
 import * as grpc from "@grpc/grpc-js";
 import * as protoLoader from "@grpc/proto-loader";
 import path from "path";
+import fs from "fs";
 import { createRequire } from "module";
 import { FileDescriptorProto } from "google-protobuf/google/protobuf/descriptor_pb.js";
 
@@ -77,18 +78,15 @@ function normalizeConsolidatedFile(f: any) {
     const pkg = typeof f.getPackage === 'function' ? f.getPackage() : '';
 
     if (name === 'google_protobuf.proto') {
+      // Do not filter messages/enums here: consolidated builds may include many
+      // WKT messages (Timestamp, Duration, Any, Empty, Struct, Value, ListValue,
+      // FieldMask, wrapper types, etc.). Filtering can drop needed descriptors
+      // and break grpcurl/clients. Only normalize the package if missing.
       try {
-        const keepMessages = new Set(['Timestamp','Duration','Any','FloatValue']);
-        const msgs = f.getMessageTypeList?.() || [];
-        const kept = msgs.filter((m: any) => keepMessages.has(m.getName?.())) as any[];
-        if (typeof f.setMessageTypeList === 'function') f.setMessageTypeList(kept);
-        const enums = f.getEnumTypeList?.() || [];
-        const keptEnums = enums.filter((e: any) => (e.getName?.() || '') !== 'NullValue');
-        if (typeof f.setEnumTypeList === 'function') f.setEnumTypeList(keptEnums);
+        if (!String(pkg).startsWith('google.')) {
+          if (typeof f.setPackage === 'function') f.setPackage('google.protobuf');
+        }
       } catch {}
-      if (!String(pkg).startsWith('google.')) {
-        try { if (typeof f.setPackage === 'function') f.setPackage('google.protobuf'); } catch {}
-      }
       return;
     }
 
@@ -133,6 +131,71 @@ function normalizeConsolidatedFile(f: any) {
   } catch {}
 }
 
+// Load protoc-generated descriptor set if available
+// This ensures map entries and implicit structures match protoc's protocol
+function loadProtocDescriptorSet(): Buffer[] {
+  try {
+    const descriptorPath = path.join(process.cwd(), 'bin/.descriptors.bin');
+    if (fs.existsSync(descriptorPath)) {
+      const fileDescriptorSetBuf = fs.readFileSync(descriptorPath);
+      
+      // Parse FileDescriptorSet manually from binary
+      // FileDescriptorSet message format: repeated FileDescriptorProto file = 1;
+      // We'll decode each FileDescriptorProto from the set
+      let offset = 0;
+      const results: Buffer[] = [];
+      const data = new Uint8Array(fileDescriptorSetBuf);
+      
+      while (offset < data.length) {
+        // Read wire format: tag (field number + wire type)
+        const tag = data[offset++];
+        if (tag === undefined) break;
+        
+        const fieldNum = tag >> 3;
+        const wireType = tag & 0x07;
+        
+        // FileDescriptorProto file = 1; is a message (wire type 2)
+        if (fieldNum === 1 && wireType === 2) {
+          // Read length-delimited message
+          let length = 0;
+          let shift = 0;
+          let b: number;
+          do {
+            b = data[offset++];
+            length |= (b & 0x7f) << shift;
+            shift += 7;
+          } while (b & 0x80);
+          
+          // Extract the FileDescriptorProto bytes
+          const fdpBytes = data.slice(offset, offset + length);
+          offset += length;
+          
+          try {
+            // Verify it's a valid FileDescriptorProto by deserializing
+            FileDescriptorProto.deserializeBinary(fdpBytes);
+            results.push(Buffer.from(fdpBytes));
+          } catch {
+            // Skip invalid descriptors
+          }
+        } else {
+          // Skip unknown fields
+          break;
+        }
+      }
+      
+      if (DEBUG) {
+        console.log(`[wishmock] (debug) Loaded ${results.length} descriptors from protoc-generated set`);
+      }
+      return results;
+    }
+  } catch (e) {
+    if (DEBUG) {
+      console.warn('[wishmock] (debug) Failed to load protoc descriptor set:', (e as any)?.message || e);
+    }
+  }
+  return [];
+}
+
 // A reflection wrapper that unions file descriptors across all added services
 // so tools like grpcurl can resolve transitive dependencies (e.g., google/type/*).
 export default function wrapServerWithReflection(server: grpc.Server, opts?: { packageObject?: any, descriptorBuffers?: (Uint8Array|Buffer)[] }): grpc.Server {
@@ -141,6 +204,19 @@ export default function wrapServerWithReflection(server: grpc.Server, opts?: { p
   let indexDirty = true;
   const fdByName = new Map<string, Uint8Array>();
   const symbolToFile = new Map<string, string>();
+
+  // Seed with protoc-generated descriptors if available (preferred for map/WKT compatibility)
+  const protocDescriptors = loadProtocDescriptorSet();
+  for (const buf of protocDescriptors) {
+    const b64 = Buffer.from(buf).toString("base64");
+    fileDescriptorSet.add(b64);
+  }
+  if (protocDescriptors.length > 0) {
+    indexDirty = true;
+    if (DEBUG) {
+      console.log(`[wishmock] (debug) Seeded reflection with ${protocDescriptors.length} protoc-generated descriptors`);
+    }
+  }
 
   function rebuildIndex() {
     fdByName.clear();

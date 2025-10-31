@@ -241,16 +241,88 @@ Source selection rules:
 - With `VALIDATION_SOURCE=protovalidate`, only Protovalidate rules are enforced; PGV rules are ignored.
 - With `VALIDATION_SOURCE=auto` (default), Protovalidate takes precedence; if no Protovalidate rule is present, PGV is used as fallback.
 
+## Reflection Support
+
+The server now provides full gRPC reflection support for services with map fields, WKT (Well-Known Types), and validation annotations. This allows tools like `grpcurl` to discover and call services without needing explicit `-proto` or `-import-path` flags.
+
+### How It Works
+
+1. **Descriptor Generation**: At build time, the server generates a complete descriptor set (`bin/.descriptors.bin`) using `protoc --descriptor_set_out`. This ensures map entries and WKT structures match the official protobuf protocol.
+
+2. **Hot Reload**: When proto files change (via file upload or modification), the descriptor set is automatically regenerated before the server restarts.
+
+3. **Reflection API**: The descriptor set is loaded into the gRPC reflection service, allowing complete service discovery.
+
+### Usage Examples
+
+```bash
+# List all services (no -proto flag needed)
+grpcurl -plaintext localhost:50050 list
+
+# Describe a service with map/WKT fields
+grpcurl -plaintext localhost:50050 describe validation.ValidationService
+
+# Call validation methods directly via reflection
+grpcurl -plaintext -d '{"labels":{"key":"value"}}' \
+  localhost:50050 validation.ValidationService/ValidateMap
+
+# Works with timestamps, durations, any, and nested maps
+grpcurl -plaintext -d '{"ts":"2024-01-01T00:00:00Z"}' \
+  localhost:50050 validation.ValidationService/ValidateTimestamp
+```
+
+### Docker Support
+
+In Docker containers, the descriptor set is pre-generated during the image build:
+
+```dockerfile
+# Build stage - generate descriptors
+RUN apk add --no-cache protobuf
+RUN bun run build && bun run descriptors:generate
+
+# Runtime stage - copy and keep protoc for hot-reload
+COPY --from=builder /app/bin/.descriptors.bin ./bin/.descriptors.bin
+RUN apk add --no-cache protobuf
+```
+
+This ensures:
+- ✅ Fast container startup (descriptors pre-baked)
+- ✅ Hot-reload support (protoc available at runtime)
+- ✅ Zero configuration needed
+
+### Performance Optimization
+
+The server uses mtime-based checking to skip unnecessary descriptor regeneration:
+- If `bin/.descriptors.bin` exists and is newer than all proto files → skip regeneration (instant)
+- If proto files have been modified → regenerate descriptors automatically
+- Typical regeneration time: ~1-2 seconds for full proto set
+
+### Consistency Guarantee
+
+The descriptor generation script **exactly matches** `protoLoader.ts` behavior:
+- Auto-discovers all `.proto` files (no hardcoded list)
+- Tries bulk compilation first, falls back to one-by-one on error
+- Skips protos that fail compilation (same as runtime skip logic)
+- **Result:** Reflection always has descriptors for exactly the protos loaded at runtime
+
 ## Testing
 
 Run validation tests:
 
 ```bash
+# Unit tests
 bun test tests/validation.ruleExtractor.test.ts
-
-# Additional engine tests for new types
 bun test tests/validation.engine.test.ts
+
+# E2E tests with reflection (no -proto flags)
+bun run validation:e2e:protovalidate:maps
+bun run validation:e2e:protovalidate:bytes
+bun run validation:e2e:protovalidate:wkt:timestamp-duration
+bun run validation:e2e:protovalidate:wkt:any
 ```
+
+Note:
+- The `wkt:any` E2E script wraps grpcurl calls with a `timeout 15s` and installs a `trap` to ensure the test server is terminated reliably during failures. This avoids CI hangs in edge cases while exercising `google.protobuf.Any`.
 
 See also:
 - [PGV Validation Documentation](./pgv-validation.md)

@@ -22,7 +22,7 @@ done
 
 echo "- Calling with INVALID payload (too short)"
 set +e
-grpcurl -plaintext -import-path "$ROOT_DIR/protos" -proto validation_examples_client.proto \
+grpcurl -plaintext \
   -d '{"payload":"YWI="}' \
   localhost:$PORT validation.ValidationService/ValidateBytes
 CODE=$?
@@ -34,7 +34,7 @@ else
 fi
 
 echo "- Calling with VALID payload"
-grpcurl -plaintext -import-path "$ROOT_DIR/protos" -proto validation_examples_client.proto \
+grpcurl -plaintext \
   -d '{"payload":"YWJjZGU="}' \
   localhost:$PORT validation.ValidationService/ValidateBytes
 

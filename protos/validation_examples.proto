@@ -27,14 +27,14 @@ message BytesExample {
 message TimestampExample {
   google.protobuf.Timestamp ts = 1 [
     (buf.validate.field).timestamp.lt_now = true,
-    (buf.validate.field).timestamp.within = "1h"
+    (buf.validate.field).timestamp.within = {seconds: 3600}
   ];
 }
 
 message DurationExample {
   google.protobuf.Duration d = 1 [
-    (buf.validate.field).duration.gt = "500ms",
-    (buf.validate.field).duration.lte = "2s"
+    (buf.validate.field).duration.gt = {nanos: 500000000},
+    (buf.validate.field).duration.lte = {seconds: 2}
   ];
 }
 

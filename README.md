@@ -196,11 +196,33 @@ npm run start:node:watch
 - Admin HTTP server: `localhost:3000`
 
 ## Quick Test
+
+With reflection (recommended):
 ```bash
-grpcurl -import-path protos -proto helloworld.proto -plaintext -d '{"name":"Tom"}' localhost:50050 helloworld.Greeter/SayHello
+# List services
+grpcurl -plaintext localhost:50050 list
+
+# Describe a service
+grpcurl -plaintext localhost:50050 describe helloworld.Greeter
+
+# Invoke a method
+grpcurl -plaintext -d '{"name":"Tom"}' localhost:50050 helloworld.Greeter/SayHello
+```
+
+Alternatively, call with explicit proto flags:
+```bash
+grpcurl -import-path protos -proto helloworld.proto -plaintext -d '{"name":"Tom"}' \
+  localhost:50050 helloworld.Greeter/SayHello
 ```
 
 ## Hot Reload
+
+**Note**: Proto hot-reload includes automatic reflection descriptor regeneration. When you upload or modify `.proto` files, the server will:
+1. Regenerate the reflection descriptor set (`bin/.descriptors.bin`) using `protoc`
+2. Reload proto definitions for validation and request handling
+3. Restart gRPC server with updated reflection metadata
+
+This works both in local development and Docker containers. See [Server Reflection](#server-reflection) for details.
 - Change/add `.proto` in `protos/` → server auto rebuilds and restarts
 - Change/add rules in `rules/grpc/` → rules reload immediately (no restart)
 - Upload proto/rules via Admin API
@@ -286,10 +308,11 @@ Note: On Bun, file watching uses polling for stability.
 The server exposes gRPC Server Reflection on both plaintext and TLS ports for tools like grpcurl to auto-discover services and message types.
 
 - How it works:
-  - The server wraps `@grpc/grpc-js` with `grpc-node-server-reflection` and unions descriptor files harvested from `@grpc/proto-loader` across all registered services.
+  - The server uses `protoc`-generated descriptor sets (`bin/.descriptors.bin`) to ensure map fields, WKT types, and validation annotations are properly represented in reflection
+  - At build time (or via `bun run descriptors:generate`), `protoc --descriptor_set_out` creates a complete descriptor set with proper map entry structures
+  - On hot-reload, when proto files change, the descriptor set is automatically regenerated before the server restarts
+  - The server wraps `@grpc/grpc-js` with `grpc-node-server-reflection` and unions these descriptors for complete service discovery
   - It preserves original `.proto` file names and canonicalizes common vendor imports (google/*) so dependency names match what grpcurl expects.
-  - When `.proto` files omit dependency lists, the server infers them from field type references and from service method input/output types to make the descriptor set dependency‑closed.
-  - If some dependencies are still unresolved, it safely falls back to returning the full descriptor pool so grpcurl can continue working.
 
 - Quick usage (no `-proto` flag required):
   - List services: `grpcurl -plaintext localhost:50050 list`

@@ -408,7 +408,7 @@ function extractProtovalidateTimestampRulesWithBase(options: Record<string, any>
       case "gte": ops.gte = value as any; break;
       case "lt_now": ops.lt_now = Boolean(value); break;
       case "gt_now": ops.gt_now = Boolean(value); break;
-      case "within": ops.within = String(value); break;
+      case "within": ops.within = value as any; break;
     }
   }
   return foundAny ? ops : null;
@@ -428,7 +428,7 @@ function extractProtovalidateDurationRulesWithBase(options: Record<string, any>,
       case "lte": ops.lte = value as any; break;
       case "gt": ops.gt = value as any; break;
       case "gte": ops.gte = value as any; break;
-      case "within": ops.within = String(value); break;
+      case "within": ops.within = value as any; break;
     }
   }
   return foundAny ? ops : null;
@@ -528,20 +528,86 @@ function extractProtovalidateTimestampRules(options: Record<string, any>): Times
   const ops: TimestampConstraintOps = {};
   const prefixes = ["(buf.validate.field).timestamp.", "(buf.validate.field).timestamp_val."]; // support legacy
   let foundAny = false;
+  
+  // Helper to reconstruct Duration messages from flattened keys
+  const reconstructDuration = (baseKey: string): {seconds?: number, nanos?: number} | null => {
+    const secs = options[baseKey + '.seconds'];
+    const nanos = options[baseKey + '.nanos'];
+    if (secs !== undefined || nanos !== undefined) {
+      const dur: any = {};
+      if (secs !== undefined) dur.seconds = Number(secs);
+      if (nanos !== undefined) dur.nanos = Number(nanos);
+      return dur;
+    }
+    return null;
+  };
+  
+  // Helper to reconstruct Timestamp messages from flattened keys
+  const reconstructTimestamp = (baseKey: string): {seconds?: number, nanos?: number} | null => {
+    const secs = options[baseKey + '.seconds'];
+    const nanos = options[baseKey + '.nanos'];
+    if (secs !== undefined || nanos !== undefined) {
+      const ts: any = {};
+      if (secs !== undefined) ts.seconds = Number(secs);
+      if (nanos !== undefined) ts.nanos = Number(nanos);
+      return ts;
+    }
+    return null;
+  };
+  
   for (const [key, value] of Object.entries(options)) {
     const prefix = prefixes.find((p) => key.startsWith(p));
     if (!prefix) continue;
-    foundAny = true;
+    
     const ruleName = key.slice(prefix.length);
-    switch (ruleName) {
-      case "const": ops.const = value as any; break;
-      case "lt": ops.lt = value as any; break;
-      case "lte": ops.lte = value as any; break;
-      case "gt": ops.gt = value as any; break;
-      case "gte": ops.gte = value as any; break;
-      case "lt_now": ops.lt_now = Boolean(value); break;
-      case "gt_now": ops.gt_now = Boolean(value); break;
-      case "within": ops.within = String(value); break;
+    const dotPos = ruleName.indexOf('.');
+    const baseRule = dotPos > 0 ? ruleName.slice(0, dotPos) : ruleName;
+    
+    switch (baseRule) {
+      case "const":
+        if (!ops.const) {
+          ops.const = reconstructTimestamp(prefix + 'const') || value as any;
+          foundAny = true;
+        }
+        break;
+      case "lt":
+        if (!ops.lt) {
+          ops.lt = reconstructTimestamp(prefix + 'lt') || value as any;
+          foundAny = true;
+        }
+        break;
+      case "lte":
+        if (!ops.lte) {
+          ops.lte = reconstructTimestamp(prefix + 'lte') || value as any;
+          foundAny = true;
+        }
+        break;
+      case "gt":
+        if (!ops.gt) {
+          ops.gt = reconstructTimestamp(prefix + 'gt') || value as any;
+          foundAny = true;
+        }
+        break;
+      case "gte":
+        if (!ops.gte) {
+          ops.gte = reconstructTimestamp(prefix + 'gte') || value as any;
+          foundAny = true;
+        }
+        break;
+      case "lt_now":
+        ops.lt_now = Boolean(value);
+        foundAny = true;
+        break;
+      case "gt_now":
+        ops.gt_now = Boolean(value);
+        foundAny = true;
+        break;
+      case "within":
+        if (!ops.within) {
+          ops.within = reconstructDuration(prefix + 'within') || value as any;
+          foundAny = true;
+        }
+        break;
     }
   }
   return foundAny ? ops : null;
@@ -551,18 +617,65 @@ function extractProtovalidateDurationRules(options: Record<string, any>): Durati
   const ops: DurationConstraintOps = {};
   const prefixes = ["(buf.validate.field).duration.", "(buf.validate.field).duration_val."]; // support legacy
   let foundAny = false;
+  
+  // Helper to reconstruct Duration messages from flattened keys
+  const reconstructDuration = (baseKey: string): {seconds?: number, nanos?: number} | null => {
+    const secs = options[baseKey + '.seconds'];
+    const nanos = options[baseKey + '.nanos'];
+    if (secs !== undefined || nanos !== undefined) {
+      const dur: any = {};
+      if (secs !== undefined) dur.seconds = Number(secs);
+      if (nanos !== undefined) dur.nanos = Number(nanos);
+      return dur;
+    }
+    return null;
+  };
+  
   for (const [key, value] of Object.entries(options)) {
     const prefix = prefixes.find((p) => key.startsWith(p));
     if (!prefix) continue;
-    foundAny = true;
+    
     const ruleName = key.slice(prefix.length);
-    switch (ruleName) {
-      case "const": ops.const = value as any; break;
-      case "lt": ops.lt = value as any; break;
-      case "lte": ops.lte = value as any; break;
-      case "gt": ops.gt = value as any; break;
-      case "gte": ops.gte = value as any; break;
-      case "within": ops.within = String(value); break;
+    const dotPos = ruleName.indexOf('.');
+    const baseRule = dotPos > 0 ? ruleName.slice(0, dotPos) : ruleName;
+    
+    switch (baseRule) {
+      case "const":
+        if (!ops.const) {
+          ops.const = reconstructDuration(prefix + 'const') || value as any;
+          foundAny = true;
+        }
+        break;
+      case "lt":
+        if (!ops.lt) {
+          ops.lt = reconstructDuration(prefix + 'lt') || value as any;
+          foundAny = true;
+        }
+        break;
+      case "lte":
+        if (!ops.lte) {
+          ops.lte = reconstructDuration(prefix + 'lte') || value as any;
+          foundAny = true;
+        }
+        break;
+      case "gt":
+        if (!ops.gt) {
+          ops.gt = reconstructDuration(prefix + 'gt') || value as any;
+          foundAny = true;
+        }
+        break;
+      case "gte":
+        if (!ops.gte) {
+          ops.gte = reconstructDuration(prefix + 'gte') || value as any;
+          foundAny = true;
+        }
+        break;
+      case "within":
+        if (!ops.within) {
+          ops.within = reconstructDuration(prefix + 'within') || value as any;
+          foundAny = true;
+        }
+        break;
     }
   }
   return foundAny ? ops : null;

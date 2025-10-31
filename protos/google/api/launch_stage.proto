@@ -1,0 +1,56 @@
+// Copyright 2025 Google LLC
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+syntax = "proto3";
+
+package google.api;
+
+option go_package = "google.golang.org/genproto/googleapis/api/annotations;annotations";
+option java_multiple_files = true;
+option java_outer_classname = "LaunchStageProto";
+option java_package = "com.google.api";
+option objc_class_prefix = "GAPI";
+
+// The launch stage as defined by Google Cloud Platform.
+enum LaunchStage {
+  // Do not use this default value.
+  LAUNCH_STAGE_UNSPECIFIED = 0;
+
+  // Early access launch stage. Testers can use the functionality and request
+  // features, but it is not guaranteed to be released.
+  EARLY_ACCESS = 1;
+
+  // Alpha launch stage. Products in Alpha are typically available to anyone
+  // who wants to try them, but they may be unstable or change without notice.
+  ALPHA = 2;
+
+  // Beta launch stage. Products in Beta are available for public testing and
+  // feedback and provide limited SLAs.
+  BETA = 3;
+
+  // Generally available launch stage. Products at GA are stable and fully open
+  // to customers.
+  GA = 4;
+
+  // Deprecated launch stage. Products at this stage are being phased out.
+  DEPRECATED = 5;
+
+  // Obsolete launch stage. This functionality may never have been launched
+  // broadly to customers.
+  UNIMPLEMENTED = 6;
+
+  // Prelaunch stage. Typically used for private preview functionality.
+  PRELAUNCH = 7;
+}
+

@@ -37,7 +37,14 @@ tmp
 .env
 .env.*
 
-# Dev-only scripts and docs (not needed at runtime)
-scripts
+# Dev-only scripts (only generate-descriptor-set.sh is copied explicitly)
+scripts/*.mjs
+scripts/*.sh
+!scripts/generate-descriptor-set.sh
+
+# Dev-only docs (not needed at runtime)
 AGENTS.md
 README.md
+
+# Generated descriptor sets (built inside container)
+bin

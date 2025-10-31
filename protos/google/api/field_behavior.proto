@@ -1,0 +1,63 @@
+// Copyright 2025 Google LLC
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+syntax = "proto3";
+
+package google.api;
+
+import "google/protobuf/descriptor.proto";
+
+option go_package = "google.golang.org/genproto/googleapis/api/annotations;annotations";
+option java_multiple_files = true;
+option java_outer_classname = "FieldBehaviorProto";
+option java_package = "com.google.api";
+option objc_class_prefix = "GAPI";
+
+// An indicator of the behavior of a given field (for example, that a field is
+// required in requests, or given as output but ignored as input).
+enum FieldBehavior {
+  // The field behavior is unspecified.
+  FIELD_BEHAVIOR_UNSPECIFIED = 0;
+
+  // The field is optional.
+  OPTIONAL = 1;
+
+  // The field is required.
+  REQUIRED = 2;
+
+  // The field must not be set by the client and will be ignored if set.
+  OUTPUT_ONLY = 3;
+
+  // The field is provided by the client but ignored by the server.
+  INPUT_ONLY = 4;
+
+  // The field cannot be changed once set.
+  IMMUTABLE = 5;
+
+  // The field is a list where order does not matter.
+  UNORDERED_LIST = 6;
+
+  // The field has a default value that must not be empty.
+  NON_EMPTY_DEFAULT = 7;
+
+  // The field is used for identifying resources.
+  IDENTIFIER = 8;
+}
+
+// See google.api.field_behavior.
+extend google.protobuf.FieldOptions {
+  // A list of behaviors for the field.
+  repeated FieldBehavior field_behavior = 1052;
+}
+

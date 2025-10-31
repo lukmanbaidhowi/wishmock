@@ -690,10 +690,12 @@ function validateTimestamp(
     violations.push({ field: fieldPath, description: 'timestamp must be in the future', rule: 'gt_now', value: ts });
   }
   if (ops.within) {
-    const dur = parseDurationToMillis(ops.within);
+    const dur = durationToMillis(ops.within);
     if (dur !== null) {
       const delta = Math.abs(now - ts);
-      if (delta > dur) violations.push({ field: fieldPath, description: `timestamp must be within ${ops.within} of now`, rule: 'within', value: delta });
+      if (delta > dur) {
+        violations.push({ field: fieldPath, description: `timestamp must be within ${JSON.stringify(ops.within)} of now`, rule: 'within', value: delta });
+      }
     }
   }
   return violations;

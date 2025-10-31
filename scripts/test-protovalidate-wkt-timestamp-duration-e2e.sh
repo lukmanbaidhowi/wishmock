@@ -25,7 +25,7 @@ THREE_HOURS_AGO_STR=$(date -u -d '3 hours ago' +%Y-%m-%dT%H:%M:%SZ)
 
 echo "- Timestamp INVALID (older than 1h)"
 set +e
-grpcurl -plaintext -import-path "$ROOT_DIR/protos" -proto validation_examples_client.proto \
+grpcurl -plaintext \
   -d "{\"ts\":\"$THREE_HOURS_AGO_STR\"}" \
   localhost:$PORT validation.ValidationService/ValidateTimestamp
 CODE=$?
@@ -33,13 +33,13 @@ set -e
 if [ $CODE -eq 0 ]; then echo "Expected failure"; kill $PID; exit 1; fi
 
 echo "- Timestamp VALID (within 1h)"
-grpcurl -plaintext -import-path "$ROOT_DIR/protos" -proto validation_examples_client.proto \
+grpcurl -plaintext \
   -d "{\"ts\":\"$ONE_HOUR_AGO_STR\"}" \
   localhost:$PORT validation.ValidationService/ValidateTimestamp
 
 echo "- Duration INVALID (>2s)"
 set +e
-grpcurl -plaintext -import-path "$ROOT_DIR/protos" -proto validation_examples_client.proto \
+grpcurl -plaintext \
   -d '{"d":"3s"}' \
   localhost:$PORT validation.ValidationService/ValidateDuration
 CODE=$?
@@ -47,7 +47,7 @@ set -e
 if [ $CODE -eq 0 ]; then echo "Expected failure"; kill $PID; exit 1; fi
 
 echo "- Duration VALID (1s)"
-grpcurl -plaintext -import-path "$ROOT_DIR/protos" -proto validation_examples_client.proto \
+grpcurl -plaintext \
   -d '{"d":"1s"}' \
   localhost:$PORT validation.ValidationService/ValidateDuration
 

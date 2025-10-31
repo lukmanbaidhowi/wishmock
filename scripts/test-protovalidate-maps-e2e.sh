@@ -22,7 +22,7 @@ done
 
 echo "- INVALID (empty map)"
 set +e
-grpcurl -plaintext -import-path "$ROOT_DIR/protos" -proto validation_examples_client.proto \
+grpcurl -plaintext \
   -d '{"labels":{}}' \
   localhost:$PORT validation.ValidationService/ValidateMap
 CODE=$?
@@ -30,7 +30,7 @@ set -e
 if [ $CODE -eq 0 ]; then echo "Expected failure"; kill $PID; exit 1; fi
 
 echo "- VALID (1-2 pairs, key len>=2, value len<=5)"
-grpcurl -plaintext -import-path "$ROOT_DIR/protos" -proto validation_examples_client.proto \
+grpcurl -plaintext \
   -d '{"labels":{"aa":"short"}}' \
   localhost:$PORT validation.ValidationService/ValidateMap
 

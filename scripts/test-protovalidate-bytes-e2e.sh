@@ -6,12 +6,9 @@ echo "[E2E] Protovalidate Bytes"
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 PORT="${GRPC_PORT_PLAINTEXT:-50050}"
 
-set +e
-pkill -f "dist/app.js" >/dev/null 2>&1
-set -e
-
 VALIDATION_ENABLED=true VALIDATION_SOURCE=protovalidate bun run start >/tmp/mock-grpc-bytes.log 2>&1 &
 PID=$!
+trap 'kill $PID >/dev/null 2>&1 || true' EXIT
 echo "Server started (pid=$PID), waiting..."
 for i in $(seq 1 40); do
   if curl -fsS "http://localhost:3000/readiness" >/dev/null 2>&1; then
@@ -22,7 +19,7 @@ done
 
 echo "- Calling with INVALID payload (too short)"
 set +e
-grpcurl -plaintext \
+timeout 15s grpcurl -plaintext \
   -d '{"payload":"YWI="}' \
   localhost:$PORT validation.ValidationService/ValidateBytes
 CODE=$?
@@ -34,7 +31,7 @@ else
 fi
 
 echo "- Calling with VALID payload"
-grpcurl -plaintext \
+timeout 15s grpcurl -plaintext \
   -d '{"payload":"YWJjZGU="}' \
   localhost:$PORT validation.ValidationService/ValidateBytes
 

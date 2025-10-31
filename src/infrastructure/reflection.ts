@@ -138,51 +138,23 @@ function loadProtocDescriptorSet(): Buffer[] {
     const descriptorPath = path.join(process.cwd(), 'bin/.descriptors.bin');
     if (fs.existsSync(descriptorPath)) {
       const fileDescriptorSetBuf = fs.readFileSync(descriptorPath);
-      
-      // Parse FileDescriptorSet manually from binary
-      // FileDescriptorSet message format: repeated FileDescriptorProto file = 1;
-      // We'll decode each FileDescriptorProto from the set
-      let offset = 0;
+      // Decode using official FileDescriptorSet from google-protobuf
+      const req = createRequire(import.meta.url);
+      const GP: any = req("google-protobuf/google/protobuf/descriptor_pb.js");
+      const fds = GP.FileDescriptorSet.deserializeBinary(fileDescriptorSetBuf);
+      const list = (fds.getFileList?.() || []) as any[];
       const results: Buffer[] = [];
-      const data = new Uint8Array(fileDescriptorSetBuf);
-      
-      while (offset < data.length) {
-        // Read wire format: tag (field number + wire type)
-        const tag = data[offset++];
-        if (tag === undefined) break;
-        
-        const fieldNum = tag >> 3;
-        const wireType = tag & 0x07;
-        
-        // FileDescriptorProto file = 1; is a message (wire type 2)
-        if (fieldNum === 1 && wireType === 2) {
-          // Read length-delimited message
-          let length = 0;
-          let shift = 0;
-          let b: number;
-          do {
-            b = data[offset++];
-            length |= (b & 0x7f) << shift;
-            shift += 7;
-          } while (b & 0x80);
-          
-          // Extract the FileDescriptorProto bytes
-          const fdpBytes = data.slice(offset, offset + length);
-          offset += length;
-          
-          try {
-            // Verify it's a valid FileDescriptorProto by deserializing
-            FileDescriptorProto.deserializeBinary(fdpBytes);
-            results.push(Buffer.from(fdpBytes));
-          } catch {
-            // Skip invalid descriptors
-          }
-        } else {
-          // Skip unknown fields
-          break;
+      for (const fdp of list) {
+        try {
+          // Ensure valid by re-serializing each FileDescriptorProto
+          const buf = (fdp as any).serializeBinary();
+          // Defensive check: also decode back to confirm
+          FileDescriptorProto.deserializeBinary(buf);
+          results.push(Buffer.from(buf));
+        } catch {
+          // Skip invalid entries
         }
       }
-      
       if (DEBUG) {
         console.log(`[wishmock] (debug) Loaded ${results.length} descriptors from protoc-generated set`);
       }

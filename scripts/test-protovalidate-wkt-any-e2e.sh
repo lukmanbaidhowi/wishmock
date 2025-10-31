@@ -6,10 +6,6 @@ echo "[E2E] Protovalidate WKT (Any)"
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 PORT="${GRPC_PORT_PLAINTEXT:-50050}"
 
-set +e
-pkill -f "dist/app.js" >/dev/null 2>&1
-set -e
-
 VALIDATION_ENABLED=true VALIDATION_SOURCE=protovalidate bun run start >/tmp/mock-grpc-any.log 2>&1 &
 PID=$!
 trap 'kill $PID >/dev/null 2>&1 || true' EXIT

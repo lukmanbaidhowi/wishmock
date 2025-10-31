@@ -47,8 +47,7 @@ async function regenerateDescriptors() {
   try {
     const scriptPath = path.resolve("scripts/generate-descriptor-set.sh");
     if (!fs.existsSync(scriptPath)) {
-      log("(warn) Descriptor generation script not found; skipping reflection descriptor regeneration");
-      return;
+      throw new Error("Descriptor generation script not found");
     }
     
     const descriptorPath = path.resolve('bin/.descriptors.bin');
@@ -80,6 +79,7 @@ async function regenerateDescriptors() {
     log("✓ Reflection descriptors regenerated");
   } catch (e: any) {
     err("Failed to regenerate descriptors:", e?.message || e);
+    throw e;
   }
 }
 
@@ -171,6 +171,7 @@ async function rebuild(reason: string) {
     }
   } catch (e) {
     err("Rebuild failed:", e);
+    throw e;
   }
 }
 
@@ -191,7 +192,13 @@ function reloadRules() {
   if (!fs.existsSync(RULE_DIR)) fs.mkdirSync(RULE_DIR, { recursive: true });
   if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 
-  await rebuild("boot");
+  try {
+    await rebuild("boot");
+  } catch {
+    // Hard fail at boot if descriptor generation or proto load fails
+    process.exitCode = 1;
+    return;
+  }
   reloadRules();
 
   // watchers (hot-reload)

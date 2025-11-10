@@ -256,9 +256,23 @@ export default function wrapServerWithReflection(server: grpc.Server, opts?: { p
   // We rely on proto-loader harvested FileDescriptorProtos to preserve original
   // file names and dependency lists so grpcurl can resolve imports correctly.
 
-  // We avoid harvesting descriptors from service definitions (proto-loader),
-  // to rely solely on protoc-generated descriptors for correctness.
-  function collectDescriptorsFromService(_serviceDef: Record<string, any>) {/* no-op */}
+  // Harvest descriptors from service definitions (proto-loader) as fallback.
+  // This ensures tests work when protoc-generated descriptors aren't available.
+  function collectDescriptorsFromService(serviceDef: Record<string, any>) {
+    try {
+      for (const methodDef of Object.values(serviceDef)) {
+        const md = methodDef as any;
+        const reqFdps = md?.requestType?.fileDescriptorProtos;
+        const resFdps = md?.responseType?.fileDescriptorProtos;
+        if (Array.isArray(reqFdps)) {
+          for (const b of reqFdps) addFdpBuffer(b);
+        }
+        if (Array.isArray(resFdps)) {
+          for (const b of resFdps) addFdpBuffer(b);
+        }
+      }
+    } catch {}
+  }
 
   const serverProxy = new Proxy(server as any, {
     get(target, prop, receiver) {

@@ -57,6 +57,9 @@ COPY scripts/get-loadable-protos.mjs ./scripts/get-loadable-protos.mjs
 # Include pre-generated descriptor set from builder; runtime can still hot-regenerate if protos change
 COPY --from=builder /app/bin/.descriptors.bin ./bin/.descriptors.bin
 
+# Install protoc and bash for hot-reload descriptor regeneration
+RUN apk add --no-cache protobuf bash
+
 # Copy cluster and node entrypoint scripts
 COPY bin/cluster.mjs ./bin/cluster.mjs
 COPY bin/node-entrypoint.sh ./bin/node-entrypoint.sh

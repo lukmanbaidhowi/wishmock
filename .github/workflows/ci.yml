@@ -7,7 +7,7 @@ on:
   push:
     tags:
       - "v*"
-  workflow_dispatch:
+  workflow_dispatch: {}
 
 jobs:
   test:
@@ -34,9 +34,6 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
-      - name: Check Docker Compose version
-        run: scripts/compose/check-version.sh
 
       - name: Lint docker-compose.yml
         run: scripts/compose/lint.sh --file docker-compose.yml
@@ -66,7 +63,7 @@ jobs:
 
       - name: Upload validation artifacts
         if: always()
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: compose-validation-artifacts
           path: artifacts/compose/

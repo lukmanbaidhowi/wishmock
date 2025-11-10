@@ -1047,13 +1047,27 @@ export function extractMessageRules(messageType: protobuf.Type, source: Validati
   // Message-level rules (Buf Protovalidate)
   if (messageType.options && typeof messageType.options === 'object') {
     const opts = messageType.options as Record<string, any>;
-    // (buf.validate.message).cel.{expression,message}
+    // Support both flattened keys and nested object forms that protobufjs may produce
+    // Flattened: (buf.validate.message).cel.expression / .message
+    // Nested:   (buf.validate.message).cel = { expression, message }
     const celExprKey = '(buf.validate.message).cel.expression';
     const celMsgKey = '(buf.validate.message).cel.message';
+    const celObjKey = '(buf.validate.message).cel';
     let celExpr: string | undefined;
     let celMsg: string | undefined;
     if (typeof opts[celExprKey] !== 'undefined') celExpr = String(opts[celExprKey]);
     if (typeof opts[celMsgKey] !== 'undefined') celMsg = String(opts[celMsgKey]);
+    const celObj = opts[celObjKey];
+    if (!celExpr && celObj) {
+      if (Array.isArray(celObj) && celObj.length > 0) {
+        const first = celObj[0] || {};
+        if (typeof first.expression !== 'undefined') celExpr = String(first.expression);
+        if (typeof first.message !== 'undefined') celMsg = String(first.message);
+      } else if (typeof celObj === 'object') {
+        if (typeof (celObj as any).expression !== 'undefined') celExpr = String((celObj as any).expression);
+        if (typeof (celObj as any).message !== 'undefined') celMsg = String((celObj as any).message);
+      }
+    }
     if (celExpr) {
       messageLevel.cel = [{ expression: celExpr, message: celMsg }];
       messageLevel.source = 'protovalidate';
@@ -1070,6 +1084,7 @@ export function extractMessageRules(messageType: protobuf.Type, source: Validati
     // We support the common case where a single oneof rule is present.
     const oneofFieldsKey = '(buf.validate.message).oneof.fields';
     const oneofReqKey = '(buf.validate.message).oneof.required';
+    const oneofObjKey = '(buf.validate.message).oneof';
     if (typeof opts[oneofFieldsKey] !== 'undefined') {
       const raw = opts[oneofFieldsKey];
       const required = Boolean(opts[oneofReqKey]);
@@ -1077,6 +1092,17 @@ export function extractMessageRules(messageType: protobuf.Type, source: Validati
       if (Array.isArray(raw)) fields = raw.map(String);
       else if (typeof raw === 'string') fields = [raw];
       else if (raw && typeof raw === 'object' && Array.isArray((raw as any).fields)) fields = (raw as any).fields.map(String);
+      if (fields && fields.length > 0) {
+        oneofs.push({ name: 'message_oneof_1', fields, required, source: 'protovalidate' });
+      }
+    }
+    // Also support nested object form for oneof if present
+    if (typeof opts[oneofObjKey] === 'object' && opts[oneofObjKey] !== null && !Array.isArray(opts[oneofObjKey])) {
+      const o = opts[oneofObjKey] as any;
+      let fields: string[] | undefined;
+      if (Array.isArray(o.fields)) fields = o.fields.map(String);
+      else if (typeof o.fields === 'string') fields = [String(o.fields)];
+      const required = Boolean(o.required);
       if (fields && fields.length > 0) {
         oneofs.push({ name: 'message_oneof_1', fields, required, source: 'protovalidate' });
       }

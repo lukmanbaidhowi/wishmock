@@ -424,7 +424,7 @@ bash scripts/test-validation-comprehensive.sh
 
 ## See Also
 
-- [Buf Validation Documentation](./buf-validation.md)
+- [Protovalidate Validation Documentation](./protovalidate-validation.md)
 - [Rule Examples](./rule-examples.md)
 - [Validation Engine](../src/domain/validation/engine.ts)
 - [Rule Extractor](../src/domain/validation/ruleExtractor.ts)

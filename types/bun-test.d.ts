@@ -5,6 +5,8 @@ declare module "bun:test" {
 
   export interface TestFn {
     (name: string, fn: TestCallback): void;
+    // Support optional timeout/options as third arg (used in repo tests)
+    (name: string, fn: TestCallback, timeoutOrOptions: number | { timeout?: number }): void;
     (fn: TestCallback): void;
   }
 

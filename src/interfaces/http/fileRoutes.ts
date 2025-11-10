@@ -5,6 +5,23 @@ import { validateFilename, validateContent, validateUploadData, validateRelative
 import { FILE_EXTENSIONS } from './constants.js';
 
 function createFileHandlers(protoDir: string, ruleDir: string, onRuleUpdated: () => void) {
+  const isBun = typeof (globalThis as any).Bun !== "undefined";
+  const startCluster = String(process.env.START_CLUSTER || "").toLowerCase() === 'true';
+  // Default upload action:
+  //  - Node cluster (START_CLUSTER=true): request rolling restart (zero-downtime)
+  //  - Otherwise (Bun or single process): rely on hot-reload
+  const DEFAULT_UPLOAD_ACTION = (startCluster && !isBun) ? 'rolling-restart' : 'noop';
+  const UPLOAD_ACTION = (process.env.ON_UPLOAD_PROTO_ACTION || DEFAULT_UPLOAD_ACTION).toLowerCase();
+
+  function requestRollingRestart(reason: string) {
+    try {
+      (process as any).send?.({ type: 'rolling-restart', reason });
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
   return {
     listProtos: (_req: any, res: any) => {
       try {
@@ -89,7 +106,12 @@ function createFileHandlers(protoDir: string, ruleDir: string, onRuleUpdated: ()
       
       try {
         const saved = writeFile(protoDir, path.basename(filename), content);
-        sendSuccess(res, { ok: true, saved });
+        let action: string | undefined;
+        if (UPLOAD_ACTION === 'rolling-restart') {
+          const ok = requestRollingRestart('proto upload');
+          action = ok ? 'rolling-restart' : 'noop';
+        }
+        sendSuccess(res, { ok: true, saved, action: action || 'noop' });
       } catch (error) {
         sendError(res, error, "Failed to upload proto file");
       }
@@ -119,7 +141,12 @@ function createFileHandlers(protoDir: string, ruleDir: string, onRuleUpdated: ()
 
       try {
         const saved = writeFileAtPath(protoDir, relPath, content);
-        sendSuccess(res, { ok: true, saved });
+        let action: string | undefined;
+        if (UPLOAD_ACTION === 'rolling-restart') {
+          const ok = requestRollingRestart('proto upload (path)');
+          action = ok ? 'rolling-restart' : 'noop';
+        }
+        sendSuccess(res, { ok: true, saved, action: action || 'noop' });
       } catch (error) {
         sendError(res, error, "Failed to upload proto file at path");
       }

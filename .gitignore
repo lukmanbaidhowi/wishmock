@@ -48,6 +48,10 @@ codex*.log
 /GEMINI.md
 .amazonq/
 
+# spec-kit generated files
+.specify/
+specs/
+
 # Runtime/uploads
 uploads/
 
@@ -64,6 +68,11 @@ tmp/
 *.swp
 *.swo
 .eslintcache
+
+# Test artifacts
+artifacts/grpcurl/
+artifacts/compose/*
+!artifacts/compose/examples/
 
 # Generated descriptor sets
 bin/.descriptors.bin

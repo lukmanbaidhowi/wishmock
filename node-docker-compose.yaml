@@ -1,0 +1,58 @@
+services:
+  wishmock-cluster:
+    build:
+      context: .
+      dockerfile: node.Dockerfile
+    container_name: wishmock-cluster
+    ports:
+      - "50050:50050" # gRPC plaintext
+      - "50051:50051" # gRPC TLS
+      - "3000:3000" # Admin HTTP API
+      - "9090:9090" # MCP SSE (optional)
+    volumes:
+      - ./protos:/app/protos
+      - ./rules:/app/rules
+      - ./uploads:/app/uploads
+      - ./certs:/app/certs
+      - ./docs:/app/docs
+    environment:
+      - GRPC_PORT_PLAINTEXT=50050
+      - GRPC_PORT_TLS=50051
+      - HTTP_PORT=3000
+      - ENABLE_MCP=true
+      - ENABLE_MCP_SSE=true
+      - MCP_HTTP_PORT=9090
+      - MCP_HTTP_HOST=0.0.0.0
+      - GRPC_TLS_ENABLED=true
+      - GRPC_TLS_CERT_PATH=/app/certs/server.crt
+      - GRPC_TLS_KEY_PATH=/app/certs/server.key
+      - GRPC_TLS_CA_PATH=/app/certs/ca.crt
+      - GRPC_TLS_REQUIRE_CLIENT_CERT=false
+      - START_CLUSTER=true
+      - CLUSTER_WORKERS=1
+      - REFLECTION_DISABLE_REGEN=true
+      - DEBUG_REFLECTION=1
+      - VALIDATION_ENABLED=true
+      - VALIDATION_SOURCE=auto
+      - VALIDATION_MODE=per_message
+    healthcheck:
+      # Healthcheck using Node.js with a simple HTTP request.
+      # Dynamically respect HTTP_PORT so custom admin port configs keep working.
+      test:
+        [
+          "CMD-SHELL",
+          'node -e "const http = require(''http''); const port = process.env.HTTP_PORT || ''3000''; const req = http.request({port, host:''127.0.0.1'', path:''/liveness'', timeout:2000}, res => process.exit(res.statusCode === 200 ? 0 : 1)); req.on(''error'', () => process.exit(1)); req.end();"',
+        ]
+      interval: 5s
+      timeout: 2s
+      retries: 10
+      start_period: 10s
+    networks:
+      - wishmock-net
+
+networks:
+  wishmock-net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.31.200.0/24

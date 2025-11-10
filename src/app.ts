@@ -25,6 +25,7 @@ const PROTO_DIR = path.resolve("protos");
 const RULES_ROOT = path.resolve("rules");
 const RULE_DIR = path.resolve(RULES_ROOT, "grpc");
 const UPLOAD_DIR = path.resolve("uploads");
+const REFLECTION_DISABLE_REGEN = String(process.env.REFLECTION_DISABLE_REGEN || "").toLowerCase() === 'true' || process.env.REFLECTION_DISABLE_REGEN === '1';
 
 // ----- state -----
 let serverPlain: grpc.Server | null = null;
@@ -38,6 +39,10 @@ let currentRoot: protobuf.Root | null = null;
 let protoReport: ProtoFileStatus[] = [];
 const rulesIndex = new Map<string, any>();
 let rebuildInProgress = false;
+let signalledReady = false;
+let lastReloadTimestamp: Date | null = null;
+let lastReloadMode: 'cluster' | 'bun-watch' | 'initial' = 'initial';
+let reloadDowntimeDetected = false;
 
 // --- util: logging ---
 const log = (...a: any[]) => console.log("[wishmock]", ...a);
@@ -46,6 +51,10 @@ const err = (...a: any[]) => console.error("[wishmock]", ...a);
 // --- util: descriptor generation ---
 async function regenerateDescriptors() {
   try {
+    if (REFLECTION_DISABLE_REGEN) {
+      log("Reflection descriptor regeneration disabled by env (REFLECTION_DISABLE_REGEN)");
+      return;
+    }
     const scriptPath = path.resolve("scripts/generate-descriptor-set.sh");
     if (!fs.existsSync(scriptPath)) {
       throw new Error("Descriptor generation script not found");
@@ -150,12 +159,26 @@ async function startGrpc(rootNamespace: protobuf.Root) {
       err("TLS server failed to start; continuing with plaintext only:", tlsError);
     }
   }
+
+  // Notify cluster master (if any) that this worker is ready (only once)
+  if (!signalledReady) {
+    try { (process as any).send?.({ type: 'ready' }); } catch {}
+    signalledReady = true;
+  }
 }
 
 async function rebuild(reason: string) {
   rebuildInProgress = true;
   const start = Date.now();
   log(`[reload] ⏳ Rebuild start (reason: ${reason}) — readiness=not_ready`);
+  
+  lastReloadTimestamp = new Date();
+  if (reason.includes('cluster') || process.env.START_CLUSTER) {
+    lastReloadMode = 'cluster';
+  } else if (reason.includes('watch')) {
+    lastReloadMode = 'bun-watch';
+  }
+  
   try {
     // Regenerate descriptor set for reflection hot reload
     await regenerateDescriptors();
@@ -174,9 +197,12 @@ async function rebuild(reason: string) {
     if (skipped.length) {
       for (const s of skipped) err(`Skipped proto: ${s.file} (${s.error || "unknown error"})`);
     }
+    
+    reloadDowntimeDetected = dur > 1000;
   } catch (e: any) {
     const dur = Date.now() - start;
     err(`[reload] ❌ Rebuild failed after ${dur}ms (reason: ${reason})`, e?.message || e);
+    reloadDowntimeDetected = true;
     throw e;
   } finally {
     rebuildInProgress = false;
@@ -204,6 +230,20 @@ function reloadRules() {
   process.on('uncaughtException', (e) => err('Uncaught exception', e));
   process.on('unhandledRejection', (r) => err('Unhandled rejection', r));
 
+  // Graceful shutdown handlers (cluster master will call worker.disconnect())
+  const graceful = async () => {
+    const shutdown = async (srv: grpc.Server | null) => srv ? new Promise<void>((resolve) => srv.tryShutdown(() => resolve())) : Promise.resolve();
+    try {
+      await shutdown(serverPlain);
+      await shutdown(serverTls);
+    } finally {
+      process.exit(0);
+    }
+  };
+  process.on('disconnect', () => { log('[lifecycle] worker disconnect received → graceful shutdown'); void graceful(); });
+  process.on('SIGTERM', () => { log('[lifecycle] SIGTERM → graceful shutdown'); void graceful(); });
+  process.on('SIGINT', () => { log('[lifecycle] SIGINT → graceful shutdown'); void graceful(); });
+
   if (!fs.existsSync(PROTO_DIR)) fs.mkdirSync(PROTO_DIR, { recursive: true });
   if (!fs.existsSync(RULE_DIR)) fs.mkdirSync(RULE_DIR, { recursive: true });
   if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true });
@@ -219,22 +259,45 @@ function reloadRules() {
 
   // watchers (hot-reload)
   const isBun = typeof (globalThis as any).Bun !== "undefined";
+  const startCluster = String(process.env.START_CLUSTER || "").toLowerCase() === 'true';
+  // Default behavior:
+  //  - In Node cluster (START_CLUSTER=true): disable proto hot-reload to allow zero-downtime rolling restarts on upload
+  //  - Otherwise (Bun or single process): enable proto hot-reload
+  const HOT_RELOAD_PROTOS_ENV = process.env.HOT_RELOAD_PROTOS;
+  const hotReloadProtos = typeof HOT_RELOAD_PROTOS_ENV === 'string'
+    ? (HOT_RELOAD_PROTOS_ENV.toLowerCase() === 'true' || HOT_RELOAD_PROTOS_ENV === '1')
+    : !(startCluster && !isBun);
+  const HOT_RELOAD_RULES_ENV = process.env.HOT_RELOAD_RULES;
+  const hotReloadRules = typeof HOT_RELOAD_RULES_ENV === 'string'
+    ? (HOT_RELOAD_RULES_ENV.toLowerCase() === 'true' || HOT_RELOAD_RULES_ENV === '1')
+    : true;
+
   const watchOpts: any = { ignoreInitial: true, ...(isBun ? { usePolling: true, interval: 500, binaryInterval: 500 } : {}) };
 
-  try {
-    const protoWatcher = chokidar.watch(PROTO_DIR, watchOpts);
-    protoWatcher.on("all", async () => { await rebuild(".proto changed"); });
-    protoWatcher.on("error", (e: unknown) => err("Watcher error (protos)", e));
-  } catch (e) {
-    err("Failed to start proto watcher; continuing without hot reload", e);
+  if (hotReloadProtos) {
+    try {
+      const protoWatcher = chokidar.watch(PROTO_DIR, watchOpts);
+      protoWatcher.on("all", async () => { await rebuild(".proto changed"); });
+      protoWatcher.on("error", (e: unknown) => err("Watcher error (protos)", e));
+      log(`[watch] protos hot-reload: enabled`);
+    } catch (e) {
+      err("Failed to start proto watcher; continuing without hot reload", e);
+    }
+  } else {
+    log(`[watch] protos hot-reload: disabled (cluster mode)`);
   }
 
-  try {
-    const ruleWatcher = chokidar.watch(RULE_DIR, watchOpts);
-    ruleWatcher.on("all", async () => { reloadRules(); });
-    ruleWatcher.on("error", (e: unknown) => err("Watcher error (rules)", e));
-  } catch (e) {
-    err("Failed to start rule watcher; continuing without hot reload", e);
+  if (hotReloadRules) {
+    try {
+      const ruleWatcher = chokidar.watch(RULE_DIR, watchOpts);
+      ruleWatcher.on("all", async () => { reloadRules(); });
+      ruleWatcher.on("error", (e: unknown) => err("Watcher error (rules)", e));
+      log(`[watch] rules hot-reload: enabled`);
+    } catch (e) {
+      err("Failed to start rule watcher; continuing without hot reload", e);
+    }
+  } else {
+    log(`[watch] rules hot-reload: disabled by env`);
   }
 
   // HTTP admin (upload proto/rules)
@@ -258,6 +321,12 @@ function reloadRules() {
       protos: {
         loaded: protoReport.filter(r => r.status === "loaded").map(r => r.file),
         skipped: protoReport.filter(r => r.status === "skipped")
+      },
+      validation: validationRuntime.getCoverageInfo(),
+      reload: {
+        last_triggered: lastReloadTimestamp?.toISOString(),
+        mode: lastReloadMode,
+        downtime_detected: reloadDowntimeDetected
       }
     }),
     getReadiness: () => !rebuildInProgress,

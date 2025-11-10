@@ -83,7 +83,7 @@ describe("fileRoutes - update & upload handlers", () => {
 
       expect(spy).toHaveBeenCalledWith("/proto/dir", "uploaded.proto", "syntax=proto3;");
       expect(mockRes.status).toHaveBeenCalledWith(HTTP_STATUS.OK);
-      expect(mockRes._jsonMock).toHaveBeenCalledWith({ ok: true, saved: savedPath });
+      expect(mockRes._jsonMock).toHaveBeenCalledWith(expect.objectContaining({ ok: true, saved: savedPath }));
       spy.mockRestore();
     });
   });
@@ -103,7 +103,7 @@ describe("fileRoutes - update & upload handlers", () => {
       expect(spy).toHaveBeenCalledWith("/rule/dir", "helloworld.greeter.sayhello.yaml", "responses: []");
       expect(onRuleUpdated).toHaveBeenCalledTimes(1);
       expect(mockRes.status).toHaveBeenCalledWith(HTTP_STATUS.OK);
-      expect(mockRes._jsonMock).toHaveBeenCalledWith({ ok: true, saved: savedPath });
+      expect(mockRes._jsonMock).toHaveBeenCalledWith(expect.objectContaining({ ok: true, saved: savedPath }));
       spy.mockRestore();
     });
   });
@@ -367,7 +367,7 @@ describe("fileRoutes - update & upload handlers", () => {
 
       expect(spy).toHaveBeenCalledWith("/proto/dir", "nested/ok.proto", "syntax=proto3;");
       expect(mockRes.status).toHaveBeenCalledWith(HTTP_STATUS.OK);
-      expect(mockRes._jsonMock).toHaveBeenCalledWith({ ok: true, saved: savedPath });
+      expect(mockRes._jsonMock).toHaveBeenCalledWith(expect.objectContaining({ ok: true, saved: savedPath }));
       spy.mockRestore();
     });
 

@@ -1,7 +1,7 @@
 # wishmock
 
-Wishmock is a Bun 1.x gRPC mock platform that bundles the server, admin HTTP API, and lightweight web UI in one package.  
-Load `.proto` files directly, define rule-based responses in YAML/JSON, and iterate quickly with hot reload.  
+Wishmock is a gRPC mock platform that bundles the server, admin HTTP API, and lightweight web UI in one package.  
+Load `.proto` files directly, define rule-based responses in YAML/JSON, and iterate quickly with hot reload on Bun or zero‑downtime rolling restarts on Node cluster.  
 The project ships with MCP servers, a multi-stage Docker build (now including TypeScript declaration shims), and first-class tooling for grpcurl and observability experiments.
 
 ## Table of Contents
@@ -12,7 +12,9 @@ The project ships with MCP servers, a multi-stage Docker build (now including Ty
   - [Enable TLS locally with .env](#enable-tls-locally-with-env)
 - [Usage (Node / npx)](#usage-node--npx)
 - [Quick Test](#quick-test)
+- [Available Commands](#available-commands)
 - [Hot Reload](#hot-reload)
+  - [Zero-downtime proto updates (Node cluster)](#zero-downtime-proto-updates-node-cluster)
   - [Admin UI (Web)](#admin-ui-web)
   - [Docker](#docker)
   - [Error Simulation Examples](#error-simulation-examples)
@@ -46,16 +48,21 @@ The project ships with MCP servers, a multi-stage Docker build (now including Ty
 - [MCP Server (Model Context Protocol)](#mcp-server-model-context-protocol)
   - [MCP Client Config Examples](#mcp-client-config-examples)
   - [Start Both (Server + MCP) with Bun and env file](#start-both-server--mcp-with-bun-and-env-file)
+- [Docker Compose Validation](#docker-compose-validation)
 - [Roadmap](#roadmap)
 - [Development](#development)
 
 ## Features
-- **Dynamic Proto Loading** – Read `.proto` definitions at runtime via `protobufjs`
-- **Rule Engine & Templates** – YAML/JSON rules with request/metadata matching, operators, and templated responses
-- **Instant Hot Reload** – Proto edits trigger soft restarts; rule changes apply without restarting
-- **Streaming & Chaos Modes** – Unary, server, client, and bidirectional streaming with delays, loops, and random order
-- **TLS/mTLS & Reflection** – Plaintext and TLS ports with server reflection for grpcurl and clients
-- **Admin & UI** – REST Admin API, static web console, and MCP (SDK/SSE) endpoints for automation workflows
+- **Proto loading + protoc descriptors** — Load protos at runtime and serve reflection using prebuilt `protoc` descriptor sets for grpcurl parity
+- **Rule engine + templating** — YAML/JSON rules with request/metadata matching, rich operators, and body/stream templating
+- **Validation (Protovalidate + PGV)** — Field-level constraints, per-message/aggregate modes, optional message-level CEL
+- **Streaming modes** — Unary, server, client, and bidirectional with delays, loops, and random ordering
+- **Hot reload + zero-downtime** — Watch protos/rules in dev; rolling restarts in Node cluster
+- **TLS/mTLS + reflection** — Plaintext and TLS ports; first-class grpcurl support via server reflection
+- **Admin API + Web UI + MCP** — REST admin endpoints, static console, and MCP (SDK + SSE) for automation
+- **Docker + compose validation** — Multi-stage image, healthchecks, and scripts for lint/dry-run/smoke with artifacts
+- **Observability & health** — `/`, `/liveness`, `/readiness`, and `/admin/status` with detailed metrics
+- **Asset workflows** — Upload protos/rules via Admin API; auto-regenerate reflection descriptors on changes
 
 ## Project Structure
 ```
@@ -215,7 +222,46 @@ grpcurl -import-path protos -proto helloworld.proto -plaintext -d '{"name":"Tom"
   localhost:50050 helloworld.Greeter/SayHello
 ```
 
+## Available Commands
+
+| Command | Description |
+|---------|-------------|
+| `bun run start` | Start server (builds first via prestart) |
+| `bun run start:develop` | Development with watch (tsc + Bun watcher) |
+| `bun run start:develop:ts` | Development with Bun TS watcher (no tsc) |
+| `bun run build` | Build TypeScript to dist/ |
+| `bun run dev:frontend` | Watch and rebuild frontend |
+| `bun run descriptors:generate` | Regenerate protobuf descriptor set for reflection |
+| `bun test` | Run all unit tests |
+| `bun run test:examples` | E2E tests using reflection |
+| `bun run test:examples:import-proto` | E2E tests with explicit -import-path |
+| `bun run test:e2e` | Full E2E test suite |
+| `bun run validation:e2e:protovalidate:bytes` | E2E tests for bytes validation |
+| `bun run validation:e2e:protovalidate:maps` | E2E tests for map validation |
+| `bun run validation:e2e:protovalidate:wkt:timestamp-duration` | E2E tests for Timestamp/Duration |
+| `bun run validation:e2e:protovalidate:wkt:any` | E2E tests for Any type validation |
+| `bun run protos:fetch` | Fetch third-party protos (google, buf, envoy, etc.) |
+
+**Testing Workflow:**
+1. Generate descriptors: `bun run descriptors:generate`
+2. Run unit tests: `bun test --filter validation`
+3. Run E2E validation: `bun run validation:e2e:protovalidate:bytes`
+4. Check coverage: `curl http://localhost:3000/admin/status | jq '.validation'`
+
 ## Hot Reload
+
+### Zero-downtime proto updates (Node cluster)
+- Enable cluster: set `START_CLUSTER=true` (see `node-docker-compose.yaml`).
+- Default in Node cluster:
+  - Proto hot-reload is disabled to avoid in-worker restarts.
+  - Uploading proto via Admin API requests a rolling restart of workers (zero downtime).
+- Env toggles:
+  - `HOT_RELOAD_PROTOS=true|false` — force enable/disable proto watchers. Default is `false` when `START_CLUSTER=true`, otherwise `true`.
+  - `HOT_RELOAD_RULES=true|false` — rule watcher (default `true`).
+  - `ON_UPLOAD_PROTO_ACTION=rolling-restart|noop` — action after proto upload. Default `rolling-restart` under cluster, `noop` otherwise.
+- Manual rolling restart: send `SIGHUP` or `SIGUSR2` to the cluster master (PID 1 in Docker).
+
+In Bun or single-process Node (no cluster), proto hot-reload remains enabled by default.
 
 **Note**: Proto hot-reload includes automatic reflection descriptor regeneration. When you upload or modify `.proto` files, the server will:
 1. Regenerate the reflection descriptor set (`bin/.descriptors.bin`) using `protoc`
@@ -836,6 +882,57 @@ curl -s -X POST http://127.0.0.1:9090/notify/resources-changed
   - `bun --env-file=.env.tls.mcp run start:both:mcp`
 - Switch transport to stdio (optional):
   - `MCP_TRANSPORT=stdio bun --env-file=.env.tls.mcp run start:both:mcp`
+
+## Docker Compose Validation
+
+The project includes automated validation scripts for both `docker-compose.yml` (Bun stack) and `node-docker-compose.yaml` (Node cluster), plus a grpcurl smoke test for end-to-end validation.
+
+**Prerequisites:**
+- Docker Engine with Compose plugin v2.24.x
+- grpcurl 1.8+ (for smoke test)
+- Run `scripts/compose/check-version.sh` to verify version
+
+**Validation Scripts:**
+- `scripts/compose/lint.sh --file <compose-file>` - Validate syntax and configuration
+- `scripts/compose/dry-run.sh --file <compose-file>` - Preview planned container actions
+- `scripts/compose/smoke.sh --file <compose-file>` - Boot services and verify health
+- `scripts/docker/grpcurl-smoke.sh` - Full E2E test with grpcurl
+
+**TDD-First Workflow:**
+```bash
+# 1. Run tests first (should fail if not implemented)
+bun test tests/docker.grpcurl.test.ts
+bun test tests/e2e/docker-grpcurl.test.ts
+
+# 2. Pull latest assets (if needed)
+bun run tools:assets:pull-latest
+
+# 3. Run grpcurl smoke test
+bun run compose:grpcurl
+
+# 4. Validate compose files
+bun run compose:validate
+```
+
+**Quick validation:**
+```bash
+# Lint both compose files
+scripts/compose/lint.sh --file docker-compose.yml
+scripts/compose/lint.sh --file node-docker-compose.yaml
+
+# Run full validation suite
+bun run compose:validate
+
+# Run grpcurl smoke test (E2E)
+bun run compose:grpcurl
+```
+
+**Artifacts:**
+- Validation results are stored in `artifacts/compose/<timestamp>/`
+- Grpcurl test results in `artifacts/grpcurl/<run-id>/`
+- Logs, container states, and health check results are captured for troubleshooting
+
+For a guided workflow and CI integration pointers, see the scripts under `scripts/compose/`, the grpcurl smoke test at `scripts/docker/grpcurl-smoke.sh`, and artifact examples in `artifacts/compose/examples/README.md`.
 
 ## Roadmap
 - Create, edit, and validate rule bodies inline with schema validation.

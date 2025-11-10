@@ -9,14 +9,24 @@ export VALIDATION_SOURCE=protovalidate
 export VALIDATION_MODE=per_message
 export VALIDATION_CEL_MESSAGE=experimental
 
-HTTP_PORT=${HTTP_PORT:-3000}
-GRPC_PORT_PLAINTEXT=${GRPC_PORT_PLAINTEXT:-50050}
+HTTP_PORT=${HTTP_PORT:-3010}
+GRPC_PORT_PLAINTEXT=${GRPC_PORT_PLAINTEXT:-50060}
 TIMEOUT=${TIMEOUT:-30}
 
-echo "Starting server..."
-bun run start >/tmp/wishmock-e2e.log 2>&1 &
+RUNNER="${RUNNER:-}"
+if [[ -z "$RUNNER" ]]; then
+  if command -v bun >/dev/null 2>&1; then RUNNER="bun"; else RUNNER="node"; fi
+fi
+if [[ "$RUNNER" == "bun" ]]; then
+  START_CMD=(env VALIDATION_ENABLED=true VALIDATION_SOURCE=protovalidate VALIDATION_MODE=per_message VALIDATION_CEL_MESSAGE=experimental bun run start)
+else
+  START_CMD=(env VALIDATION_ENABLED=true VALIDATION_SOURCE=protovalidate VALIDATION_MODE=per_message VALIDATION_CEL_MESSAGE=experimental npm run -s start:node)
+fi
+
+echo "Starting server with $RUNNER..."
+"${START_CMD[@]}" >/tmp/wishmock-e2e.log 2>&1 &
 PID=$!
-cleanup() { kill $PID || true; }; trap cleanup EXIT
+cleanup() { kill $PID >/dev/null 2>&1 || true; }; trap cleanup EXIT
 
 # Wait for readiness (bounded by TIMEOUT)
 for i in $(seq 1 $((TIMEOUT*3))); do

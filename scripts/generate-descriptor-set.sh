@@ -20,7 +20,27 @@ fi
 mkdir -p "$(dirname "$OUTPUT_FILE")"
 
 echo "[generate-descriptor-set] Detecting main protos (protobufjs)..."
-LOADABLE_FILES=$(node "$SCRIPT_DIR/get-loadable-protos.mjs" 2>&1 | head -1 || true)
+# Prefer Node if available; otherwise use Bun; if the helper script is missing
+# or the runtime is unavailable, fall back to all top-level protos.
+HELPER="$SCRIPT_DIR/get-loadable-protos.mjs"
+JS_RUNNER=""
+if command -v node >/dev/null 2>&1; then JS_RUNNER="node"; elif command -v bun >/dev/null 2>&1; then JS_RUNNER="bun"; fi
+if [ -n "$JS_RUNNER" ] && [ -f "$HELPER" ]; then
+  LOADABLE_FILES=$($JS_RUNNER "$HELPER" 2>/dev/null | head -1 || true)
+else
+  LOADABLE_FILES=""
+fi
+
+# Fallback: use all top-level .proto files
+if [ -z "$LOADABLE_FILES" ]; then
+  echo "[generate-descriptor-set] Helper unavailable; using all top-level protos"
+  LOADABLE_FILES=""
+  for f in "$PROTOS_DIR"/*.proto; do
+    [ -f "$f" ] || continue
+    base="$(basename "$f")"
+    LOADABLE_FILES="$LOADABLE_FILES $base"
+  done
+fi
 if [ -z "$LOADABLE_FILES" ]; then
   echo "[generate-descriptor-set] ERROR: No top-level proto files loadable by protobufjs"
   exit 1
@@ -127,4 +147,3 @@ else
   echo "[generate-descriptor-set] ERROR: Failed to generate descriptor set"
   exit 1
 fi
-

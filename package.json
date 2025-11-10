@@ -26,12 +26,14 @@
     "grpc-node-server-reflection": "^1.0.2",
     "js-yaml": "^4.1.0",
     "lodash.get": "^4.4.2",
+    "multer": "^1.4.5-lts.1",
     "protobufjs": "^7.4.0",
     "@modelcontextprotocol/sdk": "^1.10.0"
   },
   "devDependencies": {
     "typescript": "^5.6.3",
-    "@types/node": "^22.7.7"
+    "@types/node": "^22.7.7",
+    "@types/multer": "^1.4.11"
   },
   "scripts": {
     "dev": "bun run start:develop",
@@ -49,6 +51,7 @@
     "test:watch": "bun test --watch",
     "coverage:html": "bun scripts/coverage-html.mjs",
     "start:node": "tsc -p tsconfig.json && node dist/app.js",
+    "start:cluster": "tsc -p tsconfig.json && node bin/cluster.mjs",
     "start:node:watch": "node --watch dist/app.js",
     "start:mcp": "bun dist/mcp/server.sdk.js",
     "start:mcp:ts": "bun --watch src/mcp/server.sdk.ts",
@@ -62,12 +65,21 @@
     "validation:test": "bash scripts/test-validation-e2e.sh",
     "validation:comprehensive": "bash scripts/test-validation-comprehensive.sh",
     "validation:all": "bash scripts/test-validation-all.sh",
+    "validation:all:node": "UNIT=false RUNNER=node bash scripts/test-validation-all.sh",
+    "validation:all:bun": "RUNNER=bun bash scripts/test-validation-all.sh",
+    "test:e2e": "bash scripts/test-e2e-all.sh",
+    "test:e2e:node": "RUNNER=node bash scripts/test-e2e-all.sh",
+    "test:e2e:bun": "RUNNER=bun bash scripts/test-e2e-all.sh",
     "validation:e2e:protovalidate": "bash scripts/test-protovalidate-official-e2e.sh",
     "validation:e2e:protovalidate:oneof": "bash scripts/test-protovalidate-oneof-e2e.sh",
     "validation:e2e:protovalidate:bytes": "bash scripts/test-protovalidate-bytes-e2e.sh",
     "validation:e2e:protovalidate:maps": "bash scripts/test-protovalidate-maps-e2e.sh",
     "validation:e2e:protovalidate:wkt:timestamp-duration": "bash scripts/test-protovalidate-wkt-timestamp-duration-e2e.sh",
     "validation:e2e:protovalidate:wkt:any": "bash scripts/test-protovalidate-wkt-any-e2e.sh",
+    "compose:validate": "bash scripts/compose/lint.sh --file docker-compose.yml && bash scripts/compose/lint.sh --file node-docker-compose.yaml && bash scripts/compose/dry-run.sh --file docker-compose.yml && bash scripts/compose/dry-run.sh --file node-docker-compose.yaml",
+    "compose:lint": "bash scripts/compose/lint.sh --file docker-compose.yml && bash scripts/compose/lint.sh --file node-docker-compose.yaml",
+    "compose:grpcurl": "bash scripts/docker/grpcurl-smoke.sh --request fixtures/grpcurl/helloworld.SayHello.request.json --expected fixtures/grpcurl/helloworld.SayHello.response.json",
+    "tools:assets:pull-latest": "bun scripts/tools/assets-pull-latest.ts",
     "prepublishOnly": "tsc -p tsconfig.json"
   }
 }

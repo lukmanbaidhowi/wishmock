@@ -130,7 +130,48 @@ Tip: `match` and `when` are evaluated statically (no templating) for determinist
 - Keep at least one fallback response (`when` omitted) to guarantee a reply when no condition matches.
 - Use the templating features described in `README.md` to customize response bodies without duplicating rules.
 
+## Audit Events
+
+The system emits structured log events for asset management and validation workflows:
+
+### Asset Management Events
+
+- `asset.upload.replaced` - Emitted when a proto or rule file is uploaded and replaces an existing asset
+  - **Fields**: `type` (proto/rule), `filename`, `bundle_version`, `checksum`, `actor`, `timestamp`
+  
+- `asset.bundle.activated` - Emitted when a new bundle version becomes active
+  - **Fields**: `bundle_version`, `proto_count`, `rule_count`, `timestamp`
+  
+- `asset.bundle.validated` - Emitted after bundle validation completes
+  - **Fields**: `bundle_version`, `validation_report`, `timestamp`
+  
+- `asset.cache.refreshed` - Emitted when caches are refreshed after asset updates
+  - **Fields**: `bundle_version`, `proto_count`, `rule_count`, `timestamp`
+
+### Docker Test Events
+
+- `docker.grpcurl.pass` - Emitted when grpcurl smoke test passes
+  - **Fields**: `run_id`, `duration_ms`, `timestamp`
+  
+- `docker.grpcurl.fail` - Emitted when grpcurl response differs from expected
+  - **Fields**: `run_id`, `diff_count`, `differences`, `timestamp`
+  
+- `docker.grpcurl.error` - Emitted when grpcurl test encounters an error
+  - **Fields**: `run_id`, `error`, `timestamp`
+
+### Example: Observing Asset Updates
+
+```typescript
+import { ASSET_AUDIT_EVENTS } from './domain/constants';
+
+logger.on(ASSET_AUDIT_EVENTS.UPLOAD_REPLACED, (event) => {
+  console.log(`Asset replaced: ${event.filename} (${event.checksum})`);
+  console.log(`New bundle version: ${event.bundle_version}`);
+});
+```
+
 ## See Also
 
 - [PGV Validation Documentation](./pgv-validation.md)
-- [Buf Validation Documentation](./buf-validation.md)
+- [Protovalidate Validation Documentation](./protovalidate-validation.md)
+- Docker validation workflow: see `README.md#docker-compose-validation`

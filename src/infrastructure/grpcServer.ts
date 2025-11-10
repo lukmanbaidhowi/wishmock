@@ -32,9 +32,43 @@ function validateOrFail(type: protobuf.Type, message: unknown, fail: (err: any) 
     const result = validator(message);
     try { require('fs').appendFileSync('/tmp/validation.trace', `[result] ${new Date().toISOString()} ok=${result.ok}\n`); } catch {}
     if (!result.ok) {
+      // Emit validation failure events (one per violation) for metrics
+      try {
+        const typeName = (type.fullName || type.name) as string;
+        const violations = (result as any)?.violations || [];
+        if (Array.isArray(violations) && violations.length > 0) {
+          for (const v of violations) {
+            validationRuntime.emitValidationEvent({
+              typeName,
+              result: 'failure',
+              details: {
+                constraint_id: v?.rule,
+                grpc_status: 'InvalidArgument',
+                error_message: v?.description
+              }
+            });
+          }
+        } else {
+          // Fallback: emit a single failure event without specific constraint
+          validationRuntime.emitValidationEvent({
+            typeName,
+            result: 'failure',
+            details: { grpc_status: 'InvalidArgument' }
+          });
+        }
+      } catch {}
       fail(makeInvalidArgError(result.violations));
       return false;
     }
+    // Emit validation success event
+    try {
+      const typeName = (type.fullName || type.name) as string;
+      validationRuntime.emitValidationEvent({
+        typeName,
+        result: 'success',
+        details: {}
+      });
+    } catch {}
     return true;
   } catch (ve) {
     fail({ code: grpc.status.INTERNAL, message: (ve as any)?.message || 'validation error' } as any);

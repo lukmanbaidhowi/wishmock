@@ -6,6 +6,8 @@ import { sendError, sendNotFound, sendSuccess } from './http/responseHelper.js';
 import { validateFilename } from './http/validator.js';
 import { HTTP_STATUS } from './http/constants.js';
 import { StatusResponse, ServicesResponse } from './types.js';
+import { AssetStore } from '../infrastructure/assetStore.js';
+import { createUploadController } from './httpAdmin/uploadController.js';
 
 interface AdminAppParams {
   httpPort: number | string;
@@ -17,6 +19,8 @@ interface AdminAppParams {
   getSchema: (typeName: string) => unknown | null | undefined;
   onRuleUpdated: () => void;
   getReadiness?: () => boolean;
+  assetStore?: AssetStore;
+  logger?: (event: string, data: unknown) => void;
 }
 
 function setupServiceRoutes(app: any, params: AdminAppParams) {
@@ -88,7 +92,7 @@ function setupHealthChecks(app: any, getReadiness?: () => boolean) {
 }
 
 export function createAdminApp(params: AdminAppParams) {
-  const { httpPort, protoDir, ruleDir, onRuleUpdated, getReadiness } = params;
+  const { httpPort, protoDir, ruleDir, onRuleUpdated, getReadiness, uploadsDir, assetStore, logger } = params;
   const app = express();
   
   app.use(express.json({ limit: "10mb" }));
@@ -97,6 +101,13 @@ export function createAdminApp(params: AdminAppParams) {
   setupFileRoutes(app, protoDir, ruleDir, onRuleUpdated);
   setupServiceRoutes(app, params);
   setupHealthChecks(app, getReadiness);
+  
+  if (assetStore && logger) {
+    const uploadController = createUploadController(assetStore, logger);
+    app.post('/admin/assets/protos', ...uploadController.uploadProto);
+    app.post('/admin/assets/rules', ...uploadController.uploadRule);
+    app.post('/admin/assets/refresh', uploadController.refreshAssets);
+  }
   
   app.listen(httpPort, '0.0.0.0', () => console.log(`[wishmock] HTTP admin on ${httpPort}`));
   return app;

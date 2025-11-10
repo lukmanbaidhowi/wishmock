@@ -12,10 +12,20 @@ HTTP_PORT=${HTTP_PORT:-3000}
 GRPC_PORT_PLAINTEXT=${GRPC_PORT_PLAINTEXT:-50050}
 TIMEOUT=${TIMEOUT:-30}
 
-echo "Starting server..."
-bun run start >/tmp/wishmock-e2e-oneof.log 2>&1 &
+RUNNER="${RUNNER:-}"
+if [[ -z "$RUNNER" ]]; then
+  if command -v bun >/dev/null 2>&1; then RUNNER="bun"; else RUNNER="node"; fi
+fi
+if [[ "$RUNNER" == "bun" ]]; then
+  START_CMD=(bun run start)
+else
+  START_CMD=(npm run -s start:node)
+fi
+
+echo "Starting server with $RUNNER..."
+"${START_CMD[@]}" >/tmp/wishmock-e2e-oneof.log 2>&1 &
 PID=$!
-cleanup() { kill $PID || true; }; trap cleanup EXIT
+cleanup() { kill $PID >/dev/null 2>&1 || true; }; trap cleanup EXIT
 
 # Wait for readiness (bounded by TIMEOUT)
 for i in $(seq 1 $((TIMEOUT*4))); do

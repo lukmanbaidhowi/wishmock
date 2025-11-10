@@ -36,18 +36,23 @@ E2E_FAILED=0
 # UNIT TESTS
 # ============================================================================
 
-echo -e "${BLUE}📦 Running Unit Tests...${NC}"
+UNIT="${UNIT:-true}"
+echo -e "${BLUE}📦 Running Unit Tests... (UNIT=${UNIT})${NC}"
 echo ""
 
-if bun test tests/validation.ruleExtractor.test.ts tests/validation.engine.test.ts 2>&1 | tee /tmp/unit-test.log; then
-  UNIT_PASSED=1
-  echo -e "${GREEN}✅ Unit tests PASSED${NC}"
+if [[ "$UNIT" == "true" ]]; then
+  if bun test tests/validation.ruleExtractor.test.ts tests/validation.engine.test.ts 2>&1 | tee /tmp/unit-test.log; then
+    UNIT_PASSED=1
+    echo -e "${GREEN}✅ Unit tests PASSED${NC}"
+  else
+    UNIT_FAILED=1
+    echo -e "${RED}❌ Unit tests FAILED${NC}"
+  fi
+  echo ""
 else
-  UNIT_FAILED=1
-  echo -e "${RED}❌ Unit tests FAILED${NC}"
+  echo -e "${BLUE}↷ Skipping unit tests (UNIT=false)${NC}"
+  echo ""
 fi
-
-echo ""
 
 # ============================================================================
 # E2E TESTS

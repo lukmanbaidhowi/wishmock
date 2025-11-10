@@ -7,7 +7,16 @@ ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 PORT="${GRPC_PORT_PLAINTEXT:-50050}"
 TIMEOUT="${TIMEOUT:-30}"
 
-VALIDATION_ENABLED=true VALIDATION_SOURCE=protovalidate bun run start >/tmp/mock-grpc-wkt.log 2>&1 &
+RUNNER="${RUNNER:-}"
+if [[ -z "$RUNNER" ]]; then
+  if command -v bun >/dev/null 2>&1; then RUNNER="bun"; else RUNNER="node"; fi
+fi
+if [[ "$RUNNER" == "bun" ]]; then
+  START_CMD=(env VALIDATION_ENABLED=true VALIDATION_SOURCE=protovalidate bun run start)
+else
+  START_CMD=(env VALIDATION_ENABLED=true VALIDATION_SOURCE=protovalidate npm run -s start:node)
+fi
+"${START_CMD[@]}" >/tmp/mock-grpc-wkt.log 2>&1 &
 PID=$!
 trap 'kill $PID >/dev/null 2>&1 || true' EXIT
 echo "Server started (pid=$PID), waiting..."

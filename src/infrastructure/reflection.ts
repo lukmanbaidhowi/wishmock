@@ -3,7 +3,8 @@ import * as protoLoader from "@grpc/proto-loader";
 import path from "path";
 import fs from "fs";
 import { createRequire } from "module";
-import { FileDescriptorProto } from "google-protobuf/google/protobuf/descriptor_pb.js";
+// google-protobuf is CommonJS; load via createRequire for ESM compatibility
+const GP: any = createRequire(import.meta.url)("google-protobuf/google/protobuf/descriptor_pb.js");
 
 const DEBUG = process.env.DEBUG_REFLECTION === "1";
 
@@ -37,8 +38,8 @@ function canonicalFileKey(original: string): string {
   return base || posix;
 }
 
-function decodeFdpSafe(buf: Uint8Array): FileDescriptorProto | null {
-  try { return FileDescriptorProto.deserializeBinary(buf); } catch { return null; }
+function decodeFdpSafe(buf: Uint8Array): any | null {
+  try { return GP.FileDescriptorProto.deserializeBinary(buf); } catch { return null; }
 }
 
 function canonicalizeDependency(dep: string, presentNames: Set<string>): string {
@@ -139,8 +140,6 @@ function loadProtocDescriptorSet(): Buffer[] {
     if (fs.existsSync(descriptorPath)) {
       const fileDescriptorSetBuf = fs.readFileSync(descriptorPath);
       // Decode using official FileDescriptorSet from google-protobuf
-      const req = createRequire(import.meta.url);
-      const GP: any = req("google-protobuf/google/protobuf/descriptor_pb.js");
       const fds = GP.FileDescriptorSet.deserializeBinary(fileDescriptorSetBuf);
       const list = (fds.getFileList?.() || []) as any[];
       const results: Buffer[] = [];
@@ -149,7 +148,7 @@ function loadProtocDescriptorSet(): Buffer[] {
           // Ensure valid by re-serializing each FileDescriptorProto
           const buf = (fdp as any).serializeBinary();
           // Defensive check: also decode back to confirm
-          FileDescriptorProto.deserializeBinary(buf);
+          GP.FileDescriptorProto.deserializeBinary(buf);
           results.push(Buffer.from(buf));
         } catch {
           // Skip invalid entries
@@ -203,7 +202,7 @@ export default function wrapServerWithReflection(server: grpc.Server, opts?: { p
 
     for (const b64 of fileDescriptorSet) {
       const buf = Buffer.from(b64, "base64");
-      const fdp = FileDescriptorProto.deserializeBinary(buf);
+      const fdp = GP.FileDescriptorProto.deserializeBinary(buf);
       const originalName = fdp.getName();
       const fileName = canonical(originalName);
       
@@ -290,7 +289,7 @@ export default function wrapServerWithReflection(server: grpc.Server, opts?: { p
         if (!Array.isArray(list)) continue;
         const idx = list.findIndex((buf) => {
           try {
-            const fdp = FileDescriptorProto.deserializeBinary(buf as any);
+            const fdp = GP.FileDescriptorProto.deserializeBinary(buf as any);
             return getIfFileDescriptorContainsFileContainingSymbol(fdp, fileContainingSymbol);
           } catch { return false; }
         });
@@ -398,13 +397,29 @@ export default function wrapServerWithReflection(server: grpc.Server, opts?: { p
             call.write({ fileDescriptorResponse: { fileDescriptorProto: files } });
             return;
           }
+          
+          // Strategy: For most cases, returning all descriptors is simpler and more reliable
+          // than doing BFS with circular dependency handling. The performance impact is minimal
+          // (< 1MB total descriptors) and avoids complexity with buf/validate circular deps.
+          // Only use BFS for validation services that might have very deep deps.
+          const useFullSet = !target.includes('validation') && !target.includes('validate');
+          
+          if (useFullSet) {
+            // Return all descriptors - simpler and works for all services
+            if (DEBUG) console.log(`[wishmock] (debug) Reflection: returning full descriptor set for ${fileContainingSymbol}`);
+            const files = Array.from(fileDescriptorSet).map((b64) => Buffer.from(b64, "base64"));
+            call.write({ fileDescriptorResponse: { fileDescriptorProto: files } });
+            return;
+          }
+
+          // For validation services, do BFS but with deduplication
           // No mutation of descriptor names/dependencies; we pass through the
           // original bytes from proto-loader to preserve exact file paths.
           const canonicalizeBuf = (input: Uint8Array): Uint8Array => input;
 
           // Compute dependency-closed set starting from the file that defines the symbol
           const visited = new Set<string>();
-          const result: Uint8Array[] = [];
+          const resultMap = new Map<string, Uint8Array>(); // Use Map to deduplicate by content hash
           const queue: string[] = [target];
           const missingDeps: string[] = [];
 
@@ -426,10 +441,27 @@ export default function wrapServerWithReflection(server: grpc.Server, opts?: { p
             return { key: null, buf: null };
           };
 
-          while (queue.length) {
+          // Add depth limit and timeout to prevent infinite loops
+          const MAX_DEPTH = 100;
+          const MAX_TIME_MS = 3000; // 3 second timeout
+          const startTime = Date.now();
+          let iterations = 0;
+          
+          while (queue.length && iterations < MAX_DEPTH) {
+            iterations++;
+            
+            // Timeout check - fallback to full set if taking too long
+            if (Date.now() - startTime > MAX_TIME_MS) {
+              if (DEBUG) console.log(`[wishmock] (debug) Reflection: BFS timeout, returning full set for ${fileContainingSymbol}`);
+              const files = Array.from(fileDescriptorSet).map((b64) => Buffer.from(b64, "base64"));
+              call.write({ fileDescriptorResponse: { fileDescriptorProto: files } });
+              return;
+            }
+            
             const name = queue.shift()!;
             if (visited.has(name)) continue;
             visited.add(name);
+            
             let buf = fdByName.get(name);
             if (!buf) {
               const alt = resolveDep(name);
@@ -439,14 +471,30 @@ export default function wrapServerWithReflection(server: grpc.Server, opts?: { p
               }
               buf = alt.buf;
             }
-            result.push(canonicalizeBuf(buf));
+            
+            // Deduplicate by content hash to avoid duplicate descriptors
+            const hash = Buffer.from(buf).toString('base64').substring(0, 32);
+            if (!resultMap.has(hash)) {
+              resultMap.set(hash, canonicalizeBuf(buf));
+            }
+            
             try {
-              const fdp = FileDescriptorProto.deserializeBinary(buf);
-              for (const depName of fdp.getDependencyList()) {
+              const fdp = GP.FileDescriptorProto.deserializeBinary(buf);
+              const deps = fdp.getDependencyList();
+              // Add deps to queue
+              for (const depName of deps.slice(0, 100)) {
                 if (!visited.has(depName)) queue.push(depName);
               }
-            } catch {}
+            } catch (e) {
+              if (DEBUG) console.log(`[wishmock] (debug) Reflection: failed to parse ${name}:`, e);
+            }
           }
+          
+          if (iterations >= MAX_DEPTH) {
+            if (DEBUG) console.log(`[wishmock] (debug) Reflection: hit max depth for ${fileContainingSymbol}, returning partial result`);
+          }
+          
+          const result = Array.from(resultMap.values());
           // Do not inflate with all known files; keep the dependency-closed set minimal.
           if (process.env.DEBUG_REFLECTION === "1") {
             try {
@@ -455,7 +503,7 @@ export default function wrapServerWithReflection(server: grpc.Server, opts?: { p
               const depsBy: Record<string, string[]> = {};
               for (const b of result) {
                 try {
-                  const f = FileDescriptorProto.deserializeBinary(b);
+                  const f = GP.FileDescriptorProto.deserializeBinary(b);
                   const n = f.getName();
                   names.push(n);
                   if (n === target) depsBy[n] = f.getDependencyList();

@@ -7,8 +7,74 @@ import wrapServerWithReflection from "./reflection.js";
 import protobuf from "protobufjs";
 import type { RuleDoc } from "../domain/types.js";
 import { metadataToRecord, buildStreamRequest, respondUnary, handleStreamingResponses } from "./grpcHandlerUtils.js";
+import { runtime as validationRuntime } from "./validation/runtime.js"; // validation runtime for constraint checking
+import { makeInvalidArgError } from "../domain/validation/errors.js";
 
 type RulesIndex = Map<string, RuleDoc>;
+
+function getValidatorFor(type: protobuf.Type) {
+  const typeName = type.fullName || type.name;
+  return validationRuntime.getValidator(typeName);
+}
+
+function validateOrFail(type: protobuf.Type, message: unknown, fail: (err: any) => void): boolean {
+  const debug = String(process.env.DEBUG_VALIDATION || '') === '1';
+  if (!validationRuntime.active()) {
+    try { require('fs').appendFileSync('/tmp/validation.trace', `[inactive] ${new Date().toISOString()} type=${type.fullName || type.name}\n`); } catch {}
+    if (debug) console.log('[validation][debug] inactive runtime; skipping validation');
+    return true;
+  }
+  const validator = getValidatorFor(type);
+  try { require('fs').appendFileSync('/tmp/validation.trace', `[check] ${new Date().toISOString()} type=${type.fullName || type.name} hasValidator=${!!validator}\n`); } catch {}
+  if (debug) console.log('[validation][debug] type=', type.fullName || type.name, 'hasValidator=', !!validator);
+  if (!validator) return true;
+  try {
+    const result = validator(message);
+    try { require('fs').appendFileSync('/tmp/validation.trace', `[result] ${new Date().toISOString()} ok=${result.ok}\n`); } catch {}
+    if (!result.ok) {
+      // Emit validation failure events (one per violation) for metrics
+      try {
+        const typeName = (type.fullName || type.name) as string;
+        const violations = (result as any)?.violations || [];
+        if (Array.isArray(violations) && violations.length > 0) {
+          for (const v of violations) {
+            validationRuntime.emitValidationEvent({
+              typeName,
+              result: 'failure',
+              details: {
+                constraint_id: v?.rule,
+                grpc_status: 'InvalidArgument',
+                error_message: v?.description
+              }
+            });
+          }
+        } else {
+          // Fallback: emit a single failure event without specific constraint
+          validationRuntime.emitValidationEvent({
+            typeName,
+            result: 'failure',
+            details: { grpc_status: 'InvalidArgument' }
+          });
+        }
+      } catch {}
+      fail(makeInvalidArgError(result.violations));
+      return false;
+    }
+    // Emit validation success event
+    try {
+      const typeName = (type.fullName || type.name) as string;
+      validationRuntime.emitValidationEvent({
+        typeName,
+        result: 'success',
+        details: {}
+      });
+    } catch {}
+    return true;
+  } catch (ve) {
+    fail({ code: grpc.status.INTERNAL, message: (ve as any)?.message || 'validation error' } as any);
+    return false;
+  }
+}
 
 export interface HandlerMeta {
   pkg: string;
@@ -60,23 +126,32 @@ export function buildHandlersFromRoot(rootNamespace: protobuf.Root, rulesIndex: 
 
         if (!requestStream && !responseStream) {
           handler = (call: grpc.ServerUnaryCall<any, any>, callback: grpc.sendUnaryData<any>) => {
+            try { require('fs').appendFileSync('/tmp/validation.trace', `[handler] unary ${new Date().toISOString()} ${fqmn}\n`); } catch {}
             const reqObj = call.request as unknown;
             const md = metadataToRecord(call.metadata);
             const rule = rulesIndex.get(ruleKey);
+            if (!validateOrFail(reqType, reqObj, (e) => callback(e as any))) return;
             respondUnary(rule, reqObj, md, resType, callback, err, call);
           };
         } else if (!requestStream && responseStream) {
           handler = (call: grpc.ServerWritableStream<any, any>) => {
+            try { require('fs').appendFileSync('/tmp/validation.trace', `[handler] server-stream ${new Date().toISOString()} ${fqmn}\n`); } catch {}
             const reqObj = call.request as unknown;
             const md = metadataToRecord(call.metadata);
             const rule = rulesIndex.get(ruleKey);
+            if (!validateOrFail(reqType, reqObj, (e) => call.emit('error', e))) return;
             handleStreamingResponses(call, rule, reqObj, md, resType, err);
           };
         } else if (requestStream && !responseStream) {
           handler = (call: grpc.ServerReadableStream<any, any>, callback: grpc.sendUnaryData<any>) => {
+            try { require('fs').appendFileSync('/tmp/validation.trace', `[handler] client-stream ${new Date().toISOString()} ${fqmn}\n`); } catch {}
             const md = metadataToRecord(call.metadata);
             const messages: unknown[] = [];
             call.on("data", (chunk) => {
+              // Validate each incoming message in per_message mode
+              if (validationRuntime.active() && validationRuntime.mode() === 'per_message') {
+                if (!validateOrFail(reqType, chunk, (e) => call.emit('error', e))) return;
+              }
               messages.push(chunk);
             });
             call.on("error", (e) => {
@@ -84,6 +159,12 @@ export function buildHandlersFromRoot(rootNamespace: protobuf.Root, rulesIndex: 
             });
             call.on("end", () => {
               if ((call as any).cancelled) return;
+              // Aggregate mode: validate after stream end against full batch (simple per-message pass-through for now)
+              if (validationRuntime.active() && validationRuntime.mode() === 'aggregate') {
+                for (const m of messages) {
+                  if (!validateOrFail(reqType, m, (e) => callback(e as any))) return;
+                }
+              }
               const reqObj = buildStreamRequest(messages);
               const rule = rulesIndex.get(ruleKey);
               respondUnary(rule, reqObj, md, resType, callback, err);
@@ -91,9 +172,14 @@ export function buildHandlersFromRoot(rootNamespace: protobuf.Root, rulesIndex: 
           };
         } else {
           handler = (call: grpc.ServerDuplexStream<any, any>) => {
+            try { require('fs').appendFileSync('/tmp/validation.trace', `[handler] bidi ${new Date().toISOString()} ${fqmn}\n`); } catch {}
             const md = metadataToRecord(call.metadata);
             const messages: unknown[] = [];
             call.on("data", (chunk) => {
+              // Validate each incoming message in per_message mode
+              if (validationRuntime.active() && validationRuntime.mode() === 'per_message') {
+                if (!validateOrFail(reqType, chunk, (e) => call.emit('error', e))) return;
+              }
               messages.push(chunk);
             });
             call.on("error", (e) => {
@@ -101,6 +187,11 @@ export function buildHandlersFromRoot(rootNamespace: protobuf.Root, rulesIndex: 
             });
             call.on("end", () => {
               if ((call as any).cancelled) return;
+              if (validationRuntime.active() && validationRuntime.mode() === 'aggregate') {
+                for (const m of messages) {
+                  if (!validateOrFail(reqType, m, (e) => call.emit('error', e))) return;
+                }
+              }
               const reqObj = buildStreamRequest(messages);
               const rule = rulesIndex.get(ruleKey);
               handleStreamingResponses(call, rule, reqObj, md, resType, err);

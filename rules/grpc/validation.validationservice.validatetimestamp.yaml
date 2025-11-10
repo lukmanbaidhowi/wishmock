@@ -1,0 +1,5 @@
+when:
+  - priority: 1
+body:
+  message: ok
+

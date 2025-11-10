@@ -26,3 +26,34 @@ export interface RuleDoc {
 }
 
 export type MetadataMap = Record<string, unknown>;
+
+export interface ProtoAsset {
+  filename: string;
+  bundle_version: string;
+  checksum_sha256: string;
+  source_path: string;
+  service_count: number;
+  updated_at: string;
+}
+
+export interface RuleAsset {
+  filename: string;
+  bundle_version: string;
+  targets: string[];
+  priority?: number;
+  checksum_sha256: string;
+  updated_at: string;
+}
+
+export interface AssetBundle {
+  bundle_version: string;
+  created_by: string;
+  activation_pointer: boolean;
+  validation_report?: {
+    descriptor_generation: boolean;
+    rule_validation: boolean;
+    errors?: string[];
+  };
+  proto_assets: ProtoAsset[];
+  rule_assets: RuleAsset[];
+}

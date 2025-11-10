@@ -1,0 +1,59 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# E2E smoke test for message-level oneof (baseline parsing behavior).
+# Requires grpcurl and Bun installed.
+
+export VALIDATION_ENABLED=true
+export VALIDATION_SOURCE=protovalidate
+export VALIDATION_MODE=per_message
+
+HTTP_PORT=${HTTP_PORT:-3000}
+GRPC_PORT_PLAINTEXT=${GRPC_PORT_PLAINTEXT:-50050}
+TIMEOUT=${TIMEOUT:-30}
+
+RUNNER="${RUNNER:-}"
+if [[ -z "$RUNNER" ]]; then
+  if command -v bun >/dev/null 2>&1; then RUNNER="bun"; else RUNNER="node"; fi
+fi
+if [[ "$RUNNER" == "bun" ]]; then
+  START_CMD=(bun run start)
+else
+  START_CMD=(npm run -s start:node)
+fi
+
+echo "Starting server with $RUNNER..."
+"${START_CMD[@]}" >/tmp/wishmock-e2e-oneof.log 2>&1 &
+PID=$!
+cleanup() { kill $PID >/dev/null 2>&1 || true; }; trap cleanup EXIT
+
+# Wait for readiness (bounded by TIMEOUT)
+for i in $(seq 1 $((TIMEOUT*4))); do
+  if curl --max-time 2 -sf "http://localhost:${HTTP_PORT}/liveness" >/dev/null; then
+    break
+  fi
+  sleep 0.25
+done
+
+echo "Server ready. Running grpcurl checks for BufMessageOneofCheck..."
+
+# Invalid: empty payload should fail when required=true (flattened behavior)
+set +e
+timeout "${TIMEOUT}s" grpcurl -plaintext \
+  -H "grpc-timeout: ${TIMEOUT}S" \
+  -d '{}' \
+  localhost:${GRPC_PORT_PLAINTEXT} helloworld.Greeter/BufMessageOneofCheck >/dev/null
+RC=$?
+set -e
+if [ "$RC" -eq 0 ]; then
+  echo "Expected non-zero exit for empty payload on required oneof" >&2
+  exit 1
+fi
+
+# Valid: provide the visible field (typically 'd' due to flattening)
+timeout "${TIMEOUT}s" grpcurl -plaintext \
+  -H "grpc-timeout: ${TIMEOUT}S" \
+  -d '{"d":"ok"}' \
+  localhost:${GRPC_PORT_PLAINTEXT} helloworld.Greeter/BufMessageOneofCheck >/dev/null
+
+echo "E2E (oneof baseline) passed"

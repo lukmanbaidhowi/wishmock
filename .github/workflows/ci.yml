@@ -7,7 +7,7 @@ on:
   push:
     tags:
       - "v*"
-  workflow_dispatch:
+  workflow_dispatch: {}
 
 jobs:
   test:
@@ -27,6 +27,47 @@ jobs:
 
       - name: Run tests
         run: bun test
+
+  compose-validation:
+    name: Validate Compose Files
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Lint docker-compose.yml
+        run: scripts/compose/lint.sh --file docker-compose.yml
+
+      - name: Lint node-docker-compose.yaml
+        run: scripts/compose/lint.sh --file node-docker-compose.yaml
+
+      - name: Dry-run docker-compose.yml
+        run: scripts/compose/dry-run.sh --file docker-compose.yml
+
+      - name: Dry-run node-docker-compose.yaml
+        run: scripts/compose/dry-run.sh --file node-docker-compose.yaml
+
+      - name: Generate metrics summary
+        if: always()
+        run: |
+          mkdir -p artifacts/compose
+          cat > artifacts/compose/metrics.json <<EOF
+          {
+            "timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+            "workflow_run": "${{ github.run_id }}",
+            "compose_files": ["docker-compose.yml", "node-docker-compose.yaml"],
+            "validation_stages": ["lint", "dry-run"],
+            "status": "${{ job.status }}"
+          }
+          EOF
+
+      - name: Upload validation artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: compose-validation-artifacts
+          path: artifacts/compose/
+          retention-days: 7
 
   build-and-push:
     name: Build and Push Docker Image
@@ -49,6 +90,7 @@ jobs:
         uses: docker/build-push-action@v5
         with:
           context: .
+          file: ./node.Dockerfile
           push: true
           tags: |
             ${{ env.IMAGE_NAME }}:${{ github.ref_name }}

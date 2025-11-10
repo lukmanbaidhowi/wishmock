@@ -1,0 +1,58 @@
+syntax = "proto3";
+
+package validation;
+
+import "buf/validate/validate.proto";
+import "google/protobuf/timestamp.proto";
+import "google/protobuf/duration.proto";
+import "google/protobuf/any.proto";
+
+message MapExample {
+  // keys must be at least 2 chars, values at most 5 chars; 1..2 pairs
+  map<string, string> labels = 1 [
+    (buf.validate.field).map.min_pairs = 1,
+    (buf.validate.field).map.max_pairs = 2,
+    (buf.validate.field).map.keys.string.min_len = 2,
+    (buf.validate.field).map.values.string.max_len = 5
+  ];
+}
+
+message BytesExample {
+  bytes payload = 1 [
+    (buf.validate.field).bytes.min_len = 3,
+    (buf.validate.field).bytes.prefix = "abc"
+  ];
+}
+
+message TimestampExample {
+  google.protobuf.Timestamp ts = 1 [
+    (buf.validate.field).timestamp.lt_now = true,
+    (buf.validate.field).timestamp.within = {seconds: 3600}
+  ];
+}
+
+message DurationExample {
+  google.protobuf.Duration d = 1 [
+    (buf.validate.field).duration.gt = {nanos: 500000000},
+    (buf.validate.field).duration.lte = {seconds: 2}
+  ];
+}
+
+message AnyExample {
+  google.protobuf.Any a = 1 [
+    (buf.validate.field).any.in = "type.googleapis.com/google.protobuf.Empty",
+    (buf.validate.field).any.not_in = "type.googleapis.com/google.protobuf.Timestamp"
+  ];
+}
+
+message Ack {
+  string message = 1;
+}
+
+service ValidationService {
+  rpc ValidateBytes(BytesExample) returns (Ack);
+  rpc ValidateMap(MapExample) returns (Ack);
+  rpc ValidateTimestamp(TimestampExample) returns (Ack);
+  rpc ValidateDuration(DurationExample) returns (Ack);
+  rpc ValidateAny(AnyExample) returns (Ack);
+}

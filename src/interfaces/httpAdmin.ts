@@ -6,6 +6,8 @@ import { sendError, sendNotFound, sendSuccess } from './http/responseHelper.js';
 import { validateFilename } from './http/validator.js';
 import { HTTP_STATUS } from './http/constants.js';
 import { StatusResponse, ServicesResponse } from './types.js';
+import { AssetStore } from '../infrastructure/assetStore.js';
+import { createUploadController } from './httpAdmin/uploadController.js';
 
 interface AdminAppParams {
   httpPort: number | string;
@@ -16,6 +18,9 @@ interface AdminAppParams {
   listServices: () => ServicesResponse;
   getSchema: (typeName: string) => unknown | null | undefined;
   onRuleUpdated: () => void;
+  getReadiness?: () => boolean;
+  assetStore?: AssetStore;
+  logger?: (event: string, data: unknown) => void;
 }
 
 function setupServiceRoutes(app: any, params: AdminAppParams) {
@@ -64,7 +69,7 @@ function setupStaticFiles(app: any) {
   } catch {}
 }
 
-function setupHealthChecks(app: any) {
+function setupHealthChecks(app: any, getReadiness?: () => boolean) {
   app.get("/", (_req: any, res: any) => {
     sendSuccess(res, { ok: true });
   });
@@ -74,12 +79,20 @@ function setupHealthChecks(app: any) {
   });
 
   app.get("/readiness", (_req: any, res: any) => {
+    try {
+      if (typeof getReadiness === 'function') {
+        const ready = !!getReadiness();
+        if (!ready) {
+          return res.status(503).json({ status: "not_ready" });
+        }
+      }
+    } catch {}
     sendSuccess(res, { status: "ready" });
   });
 }
 
 export function createAdminApp(params: AdminAppParams) {
-  const { httpPort, protoDir, ruleDir, onRuleUpdated } = params;
+  const { httpPort, protoDir, ruleDir, onRuleUpdated, getReadiness, uploadsDir, assetStore, logger } = params;
   const app = express();
   
   app.use(express.json({ limit: "10mb" }));
@@ -87,7 +100,14 @@ export function createAdminApp(params: AdminAppParams) {
   setupStaticFiles(app);
   setupFileRoutes(app, protoDir, ruleDir, onRuleUpdated);
   setupServiceRoutes(app, params);
-  setupHealthChecks(app);
+  setupHealthChecks(app, getReadiness);
+  
+  if (assetStore && logger) {
+    const uploadController = createUploadController(assetStore, logger);
+    app.post('/admin/assets/protos', ...uploadController.uploadProto);
+    app.post('/admin/assets/rules', ...uploadController.uploadRule);
+    app.post('/admin/assets/refresh', uploadController.refreshAssets);
+  }
   
   app.listen(httpPort, '0.0.0.0', () => console.log(`[wishmock] HTTP admin on ${httpPort}`));
   return app;

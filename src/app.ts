@@ -1,5 +1,6 @@
 import fs from "fs";
 import path from "path";
+import { execSync } from "child_process";
 import chokidar from "chokidar";
 import * as grpc from "@grpc/grpc-js";
 import protobuf from "protobufjs";
@@ -7,6 +8,7 @@ import { loadProtos, type ProtoFileStatus } from "./infrastructure/protoLoader.j
 import { loadRules as loadRulesFromDisk } from "./infrastructure/ruleLoader.js";
 import { createGrpcServer, type HandlerMeta } from "./infrastructure/grpcServer.js";
 import { createAdminApp } from "./interfaces/httpAdmin.js";
+import { runtime as validationRuntime } from "./infrastructure/validation/runtime.js";
 
 // Ports
 const GRPC_PORT_PLAINTEXT = (process.env.GRPC_PORT_PLAINTEXT || process.env.GRPC_PORT || 50050) as any;
@@ -23,6 +25,7 @@ const PROTO_DIR = path.resolve("protos");
 const RULES_ROOT = path.resolve("rules");
 const RULE_DIR = path.resolve(RULES_ROOT, "grpc");
 const UPLOAD_DIR = path.resolve("uploads");
+const REFLECTION_DISABLE_REGEN = String(process.env.REFLECTION_DISABLE_REGEN || "").toLowerCase() === 'true' || process.env.REFLECTION_DISABLE_REGEN === '1';
 
 // ----- state -----
 let serverPlain: grpc.Server | null = null;
@@ -35,10 +38,60 @@ let servicesMeta: Map<string, HandlerMeta> = new Map();
 let currentRoot: protobuf.Root | null = null;
 let protoReport: ProtoFileStatus[] = [];
 const rulesIndex = new Map<string, any>();
+let rebuildInProgress = false;
+let signalledReady = false;
+let lastReloadTimestamp: Date | null = null;
+let lastReloadMode: 'cluster' | 'bun-watch' | 'initial' = 'initial';
+let reloadDowntimeDetected = false;
 
 // --- util: logging ---
 const log = (...a: any[]) => console.log("[wishmock]", ...a);
 const err = (...a: any[]) => console.error("[wishmock]", ...a);
+
+// --- util: descriptor generation ---
+async function regenerateDescriptors() {
+  try {
+    if (REFLECTION_DISABLE_REGEN) {
+      log("Reflection descriptor regeneration disabled by env (REFLECTION_DISABLE_REGEN)");
+      return;
+    }
+    const scriptPath = path.resolve("scripts/generate-descriptor-set.sh");
+    if (!fs.existsSync(scriptPath)) {
+      throw new Error("Descriptor generation script not found");
+    }
+    
+    const descriptorPath = path.resolve('bin/.descriptors.bin');
+    
+    // Skip if descriptor exists and is up-to-date (optimization for Docker pre-baked descriptors)
+    // Only regenerate if proto files are newer than descriptor
+    if (fs.existsSync(descriptorPath)) {
+      const descriptorTime = fs.statSync(descriptorPath).mtimeMs;
+      const protoFiles = fs.readdirSync(PROTO_DIR)
+        .filter(f => f.endsWith('.proto'))
+        .map(f => path.join(PROTO_DIR, f));
+      
+      const hasNewerProto = protoFiles.some(f => {
+        try {
+          return fs.statSync(f).mtimeMs > descriptorTime;
+        } catch {
+          return false; // Skip files that can't be stat'd
+        }
+      });
+      
+      if (!hasNewerProto) {
+        log("✓ Reflection descriptor up-to-date");
+        return; // Skip regeneration
+      }
+    }
+    
+    log("Regenerating reflection descriptors...");
+    execSync(`bash "${scriptPath}"`, { stdio: 'pipe' });
+    log("✓ Reflection descriptors regenerated");
+  } catch (e: any) {
+    err("Failed to regenerate descriptors:", e?.message || e);
+    throw e;
+  }
+}
 
 async function startGrpc(rootNamespace: protobuf.Root) {
   // Shutdown existing servers if any
@@ -49,7 +102,12 @@ async function startGrpc(rootNamespace: protobuf.Root) {
   serverTls = null;
 
   // Build a server instance (handlers) once to capture services meta
-  const entryFiles = protoReport.filter(r => r.status === "loaded").map(r => path.join(PROTO_DIR, r.file));
+  // Exclude validation_examples.proto from proto-loader due to map field limitations.
+  // It's still loaded via protobufjs, so validation rules work; reflection uses protoc descriptors.
+  const entryFiles = protoReport
+    .filter(r => r.status === "loaded")
+    .map(r => path.join(PROTO_DIR, r.file))
+    .filter(f => !f.endsWith(path.sep + 'validation_examples.proto'));
   const { server: s1, servicesMap } = await createGrpcServer(rootNamespace, rulesIndex, log, err, { protoDir: PROTO_DIR, entryFiles });
   servicesMeta = servicesMap;
   servicesKeys = [...servicesMap.keys()];
@@ -81,7 +139,10 @@ async function startGrpc(rootNamespace: protobuf.Root) {
       if (TLS_REQUIRE_CLIENT_CERT === "false" || TLS_REQUIRE_CLIENT_CERT === "0") requireClientCert = false;
       const creds = grpc.ServerCredentials.createSsl(rootCerts, [{ private_key: key, cert_chain: cert }], requireClientCert);
       // Build separate secure server with the same handlers
-      const entryFiles2 = protoReport.filter(r => r.status === "loaded").map(r => path.join(PROTO_DIR, r.file));
+      const entryFiles2 = protoReport
+        .filter(r => r.status === "loaded")
+        .map(r => path.join(PROTO_DIR, r.file))
+        .filter(f => !f.endsWith(path.sep + 'validation_examples.proto'));
       const { server: s2 } = await createGrpcServer(rootNamespace, rulesIndex, log, err, { protoDir: PROTO_DIR, entryFiles: entryFiles2 });
       await new Promise<void>((resolve, reject) => {
         s2.bindAsync(`0.0.0.0:${GRPC_PORT_TLS}`, creds, (e?: Error | null) => {
@@ -98,31 +159,69 @@ async function startGrpc(rootNamespace: protobuf.Root) {
       err("TLS server failed to start; continuing with plaintext only:", tlsError);
     }
   }
+
+  // Notify cluster master (if any) that this worker is ready (only once)
+  if (!signalledReady) {
+    try { (process as any).send?.({ type: 'ready' }); } catch {}
+    signalledReady = true;
+  }
 }
 
 async function rebuild(reason: string) {
+  rebuildInProgress = true;
+  const start = Date.now();
+  log(`[reload] ⏳ Rebuild start (reason: ${reason}) — readiness=not_ready`);
+  
+  lastReloadTimestamp = new Date();
+  if (reason.includes('cluster') || process.env.START_CLUSTER) {
+    lastReloadMode = 'cluster';
+  } else if (reason.includes('watch')) {
+    lastReloadMode = 'bun-watch';
+  }
+  
   try {
+    // Regenerate descriptor set for reflection hot reload
+    await regenerateDescriptors();
+    
     const { root, report } = await loadProtos(PROTO_DIR);
     protoReport = report;
     currentRoot = root;
+    // Refresh validation runtime descriptors/IR
+    try { validationRuntime.loadFromRoot(root); } catch (e) { err('Validation runtime load failed', e); }
     const loaded = report.filter(r => r.status === "loaded").map(r => r.file);
     const skipped = report.filter(r => r.status === "skipped");
     await startGrpc(root);
-    log(`Rebuilt & restarted (reason: ${reason})`);
+    const dur = Date.now() - start;
+    log(`[reload] ✅ Rebuild complete in ${dur}ms (reason: ${reason}) — readiness=ready`);
     if (loaded.length) log(`Loaded protos: ${loaded.join(", ")}`);
     if (skipped.length) {
       for (const s of skipped) err(`Skipped proto: ${s.file} (${s.error || "unknown error"})`);
     }
-  } catch (e) {
-    err("Rebuild failed:", e);
+    
+    reloadDowntimeDetected = dur > 1000;
+  } catch (e: any) {
+    const dur = Date.now() - start;
+    err(`[reload] ❌ Rebuild failed after ${dur}ms (reason: ${reason})`, e?.message || e);
+    reloadDowntimeDetected = true;
+    throw e;
+  } finally {
+    rebuildInProgress = false;
   }
 }
 
 function reloadRules() {
-  const fresh = loadRulesFromDisk(RULE_DIR);
-  rulesIndex.clear();
-  for (const [k, v] of fresh.entries()) rulesIndex.set(k, v);
-  log(`Loaded rules: ${[...rulesIndex.keys()].join(", ") || "(none)"}`);
+  const start = Date.now();
+  log(`[rules] ⏳ Reload start`);
+  try {
+    const fresh = loadRulesFromDisk(RULE_DIR);
+    rulesIndex.clear();
+    for (const [k, v] of fresh.entries()) rulesIndex.set(k, v);
+    const dur = Date.now() - start;
+    log(`[rules] ✅ Reload complete in ${dur}ms — total=${rulesIndex.size}`);
+  } catch (e) {
+    const dur = Date.now() - start;
+    err(`[rules] ❌ Reload failed after ${dur}ms`, e);
+  }
 }
 
 // --- initial boot ---
@@ -131,31 +230,74 @@ function reloadRules() {
   process.on('uncaughtException', (e) => err('Uncaught exception', e));
   process.on('unhandledRejection', (r) => err('Unhandled rejection', r));
 
+  // Graceful shutdown handlers (cluster master will call worker.disconnect())
+  const graceful = async () => {
+    const shutdown = async (srv: grpc.Server | null) => srv ? new Promise<void>((resolve) => srv.tryShutdown(() => resolve())) : Promise.resolve();
+    try {
+      await shutdown(serverPlain);
+      await shutdown(serverTls);
+    } finally {
+      process.exit(0);
+    }
+  };
+  process.on('disconnect', () => { log('[lifecycle] worker disconnect received → graceful shutdown'); void graceful(); });
+  process.on('SIGTERM', () => { log('[lifecycle] SIGTERM → graceful shutdown'); void graceful(); });
+  process.on('SIGINT', () => { log('[lifecycle] SIGINT → graceful shutdown'); void graceful(); });
+
   if (!fs.existsSync(PROTO_DIR)) fs.mkdirSync(PROTO_DIR, { recursive: true });
   if (!fs.existsSync(RULE_DIR)) fs.mkdirSync(RULE_DIR, { recursive: true });
   if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 
-  await rebuild("boot");
+  try {
+    await rebuild("boot");
+  } catch {
+    // Hard fail at boot if descriptor generation or proto load fails
+    process.exitCode = 1;
+    return;
+  }
   reloadRules();
 
   // watchers (hot-reload)
   const isBun = typeof (globalThis as any).Bun !== "undefined";
+  const startCluster = String(process.env.START_CLUSTER || "").toLowerCase() === 'true';
+  // Default behavior:
+  //  - In Node cluster (START_CLUSTER=true): disable proto hot-reload to allow zero-downtime rolling restarts on upload
+  //  - Otherwise (Bun or single process): enable proto hot-reload
+  const HOT_RELOAD_PROTOS_ENV = process.env.HOT_RELOAD_PROTOS;
+  const hotReloadProtos = typeof HOT_RELOAD_PROTOS_ENV === 'string'
+    ? (HOT_RELOAD_PROTOS_ENV.toLowerCase() === 'true' || HOT_RELOAD_PROTOS_ENV === '1')
+    : !(startCluster && !isBun);
+  const HOT_RELOAD_RULES_ENV = process.env.HOT_RELOAD_RULES;
+  const hotReloadRules = typeof HOT_RELOAD_RULES_ENV === 'string'
+    ? (HOT_RELOAD_RULES_ENV.toLowerCase() === 'true' || HOT_RELOAD_RULES_ENV === '1')
+    : true;
+
   const watchOpts: any = { ignoreInitial: true, ...(isBun ? { usePolling: true, interval: 500, binaryInterval: 500 } : {}) };
 
-  try {
-    const protoWatcher = chokidar.watch(PROTO_DIR, watchOpts);
-    protoWatcher.on("all", async () => { await rebuild(".proto changed"); });
-    protoWatcher.on("error", (e: unknown) => err("Watcher error (protos)", e));
-  } catch (e) {
-    err("Failed to start proto watcher; continuing without hot reload", e);
+  if (hotReloadProtos) {
+    try {
+      const protoWatcher = chokidar.watch(PROTO_DIR, watchOpts);
+      protoWatcher.on("all", async () => { await rebuild(".proto changed"); });
+      protoWatcher.on("error", (e: unknown) => err("Watcher error (protos)", e));
+      log(`[watch] protos hot-reload: enabled`);
+    } catch (e) {
+      err("Failed to start proto watcher; continuing without hot reload", e);
+    }
+  } else {
+    log(`[watch] protos hot-reload: disabled (cluster mode)`);
   }
 
-  try {
-    const ruleWatcher = chokidar.watch(RULE_DIR, watchOpts);
-    ruleWatcher.on("all", async () => { reloadRules(); log("Rules reloaded"); });
-    ruleWatcher.on("error", (e: unknown) => err("Watcher error (rules)", e));
-  } catch (e) {
-    err("Failed to start rule watcher; continuing without hot reload", e);
+  if (hotReloadRules) {
+    try {
+      const ruleWatcher = chokidar.watch(RULE_DIR, watchOpts);
+      ruleWatcher.on("all", async () => { reloadRules(); });
+      ruleWatcher.on("error", (e: unknown) => err("Watcher error (rules)", e));
+      log(`[watch] rules hot-reload: enabled`);
+    } catch (e) {
+      err("Failed to start rule watcher; continuing without hot reload", e);
+    }
+  } else {
+    log(`[watch] rules hot-reload: disabled by env`);
   }
 
   // HTTP admin (upload proto/rules)
@@ -179,8 +321,15 @@ function reloadRules() {
       protos: {
         loaded: protoReport.filter(r => r.status === "loaded").map(r => r.file),
         skipped: protoReport.filter(r => r.status === "skipped")
+      },
+      validation: validationRuntime.getCoverageInfo(),
+      reload: {
+        last_triggered: lastReloadTimestamp?.toISOString(),
+        mode: lastReloadMode,
+        downtime_detected: reloadDowntimeDetected
       }
     }),
+    getReadiness: () => !rebuildInProgress,
     listServices: () => {
       // Group HandlerMeta by service
       const byService = new Map<string, { pkg: string; service: string; methods: any[] }>();

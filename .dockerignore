@@ -14,6 +14,7 @@ uploads
 tests
 coverage
 .nyc_output
+artifacts
 
 # Editor/OS
 .vscode
@@ -37,7 +38,15 @@ tmp
 .env
 .env.*
 
-# Dev-only scripts and docs (not needed at runtime)
-scripts
+# Dev-only scripts (only specific scripts are copied)
+scripts/*.mjs
+scripts/*.sh
+!scripts/generate-descriptor-set.sh
+!scripts/get-loadable-protos.mjs
+
+# Dev-only docs (not needed at runtime)
 AGENTS.md
 README.md
+
+# Generated descriptor sets (built inside container)
+bin/.descriptors.bin

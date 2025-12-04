@@ -1,11 +1,15 @@
 # wishmock
 
+[![npm version](https://img.shields.io/npm/v/wishmock.svg)](https://www.npmjs.com/package/wishmock)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
 Wishmock is a gRPC mock platform that bundles the server, admin HTTP API, and lightweight web UI in one package.  
 Load `.proto` files directly, define rule-based responses in YAML/JSON, and iterate quickly with hot reload on Bun or zero‑downtime rolling restarts on Node cluster.  
 The project ships with MCP servers, a multi-stage Docker build (now including TypeScript declaration shims), and first-class tooling for grpcurl and observability experiments.
 
 ## Table of Contents
 - [Features](#features)
+- [Quick Start (Global Install)](#quick-start-global-install)
 - [Project Structure](#project-structure)
 - [Usage (Bun 1.x)](#usage-bun-1x)
   - [Environment (.env.example)](#environment-envexample)
@@ -64,6 +68,62 @@ The project ships with MCP servers, a multi-stage Docker build (now including Ty
 - **Observability & health** — `/`, `/liveness`, `/readiness`, and `/admin/status` with detailed metrics
 - **Asset workflows** — Upload protos/rules via Admin API; auto-regenerate reflection descriptors on changes
 
+## Quick Start (Global Install)
+
+Install Wishmock globally and run anywhere:
+
+```bash
+# Install
+npm install -g wishmock
+
+# Create project folder
+mkdir my-grpc-mock && cd my-grpc-mock
+
+# Start server (auto-creates protos/, rules/grpc/, uploads/ in current directory)
+wishmock
+```
+
+Server runs on:
+- gRPC (plaintext): `localhost:50050`
+- HTTP Admin API: `localhost:4319`
+- Web UI: `http://localhost:4319/app/`
+
+**Add your proto via Web UI:**
+
+1. Open `http://localhost:4319/app/`
+2. Upload your `.proto` file
+3. Optionally upload rule files (`.yaml` or `.json`)
+
+**Or create proto file manually:**
+
+```bash
+cat > protos/helloworld.proto << 'EOF'
+syntax = "proto3";
+package helloworld;
+
+service Greeter {
+  rpc SayHello (HelloRequest) returns (HelloReply) {}
+}
+
+message HelloRequest {
+  string name = 1;
+}
+
+message HelloReply {
+  string message = 1;
+}
+EOF
+```
+
+Test it:
+```bash
+grpcurl -plaintext -d '{"name":"World"}' localhost:50050 helloworld.Greeter/SayHello
+```
+
+**Note:** `protoc` is optional and auto-detected. If not installed, the server runs normally with full validation support, but `grpcurl list/describe` may not work. Install protoc for reflection: https://protobuf.dev/installation/
+
+For detailed global installation guide, see [docs/global-installation.md](docs/global-installation.md).
+
 ## Project Structure
 ```
 wishmock/
@@ -117,7 +177,7 @@ bun run dev:frontend
 - gRPC servers:
   - Plaintext: `localhost:50050` (always on)
   - TLS: `localhost:50051` (if enabled)
-- Admin HTTP server: `localhost:3000`
+- Admin HTTP server: `localhost:4319`
 
 Note: Requires Bun >= 1.0. The provided Dockerfile uses `oven/bun:1.2.20-alpine`.
 
@@ -170,7 +230,7 @@ bun --env-file= .env.tls run start
 
 4) Verify TLS is active:
 - Logs include: `gRPC (TLS) listening on 50051`
-- `curl http://localhost:3000/admin/status` shows `grpc_ports.tls_enabled: true` and `grpc_ports.tls: 50051`
+- `curl http://localhost:4319/admin/status` shows `grpc_ports.tls_enabled: true` and `grpc_ports.tls: 50051`
 
 ## Usage (Node / npx)
 If you prefer Node, you can run the server with Node or npx.
@@ -180,6 +240,8 @@ If you prefer Node, you can run the server with Node or npx.
 npx wishmock
 # or if published under a scope/name variant:
 # npx @your-scope/wishmock
+# When protoc isn't available, disable regeneration:
+REFLECTION_DISABLE_REGEN=1 npx wishmock
 ```
 
 2) Local Node run (without Bun)
@@ -200,7 +262,18 @@ npm run start:node:watch
 - gRPC servers:
   - Plaintext: `localhost:50050`
   - TLS: `localhost:50051` (if enabled)
-- Admin HTTP server: `localhost:3000`
+- Admin HTTP server: `localhost:4319`
+
+MCP (SSE for npx flows)
+
+- Start SSE MCP with npx (separate terminal):
+```bash
+npx -p wishmock node node_modules/wishmock/dist/mcp/server.sse.js
+# Overrides:
+#   HTTP_PORT=3000 npx -p wishmock node node_modules/wishmock/dist/mcp/server.sse.js
+# or explicitly:
+#   ADMIN_BASE_URL=http://localhost:3000 npx -p wishmock node node_modules/wishmock/dist/mcp/server.sse.js
+```
 
 ## Quick Test
 
@@ -246,7 +319,7 @@ grpcurl -import-path protos -proto helloworld.proto -plaintext -d '{"name":"Tom"
 1. Generate descriptors: `bun run descriptors:generate`
 2. Run unit tests: `bun test --filter validation`
 3. Run E2E validation: `bun run validation:e2e:protovalidate:bytes`
-4. Check coverage: `curl http://localhost:3000/admin/status | jq '.validation'`
+4. Check coverage: `curl http://localhost:4319/admin/status | jq '.validation'`
 
 ## Hot Reload
 
@@ -274,7 +347,7 @@ This works both in local development and Docker containers. See [Server Reflecti
 - Upload proto/rules via Admin API
 
 ### Admin UI (Web)
-- Open `http://localhost:3000/app/` to:
+- Open `http://localhost:4319/app/` to:
   - Upload `.proto` and rule files (YAML/JSON) via Admin API
   - View status: gRPC ports, loaded services, and loaded rules (stubs)
 - The UI is served statically from `frontend/`. The source is TypeScript (`frontend/app.ts`) bundled to `frontend/dist/app.js`.
@@ -293,7 +366,7 @@ docker compose up --build
 - TLS is enabled by default in docker-compose.yml with certificates from `./certs/`.
 
 Healthcheck:
-- The container includes a healthcheck that hits `http://localhost:3000/liveness` inside the container.
+- The container includes a healthcheck that hits `http://localhost:4319/liveness` inside the container.
 - View health: `docker ps` (look for `healthy`), or `docker inspect --format='{{json .State.Health}}' wishmock | jq .`
 
 To disable TLS, comment out the TLS environment variables and port mapping in `docker-compose.yml`:
@@ -520,9 +593,9 @@ grpcurl -import-path protos -proto calendar.proto -plaintext -d '{"id":"next"}' 
 - Endpoints: `/` (health), `/liveness`, `/readiness`
 - Examples:
   ```bash
-  curl -f http://localhost:3000/
-  curl -f http://localhost:3000/liveness
-  curl -f http://localhost:3000/readiness
+  curl -f http://localhost:4319/
+  curl -f http://localhost:4319/liveness
+  curl -f http://localhost:4319/readiness
   ```
 
 ## Validation
@@ -759,7 +832,7 @@ grpcurl -import-path protos -proto streaming.proto -plaintext -d '{"user_id":"te
   - CLI: `wishmock-mcp` (after build)
 - Docker: toggle MCP inside the container
   - Stdio MCP: set `ENABLE_MCP=true`
-  - SSE MCP: set `ENABLE_MCP_SSE=true` (port `9090` by default)
+  - SSE MCP: set `ENABLE_MCP_SSE=true` (port `9797` by default)
   - Example: `ENABLE_MCP_SSE=true docker compose up --build`
 - Tools:
   - `listRules`, `readRule`, `writeRule`
@@ -784,7 +857,7 @@ SSE (URL-based clients)
 {
   "mcpServers": {
     "wishmock": {
-      "url": "http://127.0.0.1:9090/sse",
+    "url": "http://127.0.0.1:9797/sse",
       "transport": "sse"
     }
   }
@@ -795,7 +868,7 @@ TOML equivalent:
 
 ```
 [mcpServers.wishmock]
-url = "http://127.0.0.1:9090/sse"
+url = "http://127.0.0.1:9797/sse"
 transport = "sse"
 ```
 
@@ -853,27 +926,27 @@ WISHMOCK_BASE_DIR = "/app"
 
 Notes:
 - Build once: `bun install && bun run build`
-- Start SSE server: `bun run start:mcp:http` (default `http://127.0.0.1:9090/sse`)
+- Start SSE server: `bun run start:mcp:http` (default `http://127.0.0.1:9797/sse`)
 - Start stdio server: `bun run start:mcp` or `wishmock-mcp`
-- Docker: set `ENABLE_MCP_SSE=true` to expose `http://127.0.0.1:9090/sse`
+- Docker: set `ENABLE_MCP_SSE=true` to expose `http://127.0.0.1:9797/sse`
 
 Quick test SSE without an MCP client:
 ```
 # Terminal A: listen to SSE
-curl -N http://127.0.0.1:9090/sse
+curl -N http://127.0.0.1:9797/sse
 
 # Terminal B: send a JSON-RPC request (response comes back in HTTP body)
 curl -s -X POST -H 'content-type: application/json' \
   -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' \
-  http://127.0.0.1:9090/message
+  http://127.0.0.1:9797/message
 
 # Send a raw SSE event (JSON-RPC notification over SSE stream)
 curl -s -X POST -H 'content-type: application/json' \
   -d '{"method":"notifications/resources/list_changed"}' \
-  http://127.0.0.1:9090/event
+  http://127.0.0.1:9797/event
 
 # Convenience endpoint to signal resources changed
-curl -s -X POST http://127.0.0.1:9090/notify/resources-changed
+curl -s -X POST http://127.0.0.1:9797/notify/resources-changed
 ```
 
 ### Start Both (Server + MCP) with Bun and env file
@@ -937,6 +1010,15 @@ For a guided workflow and CI integration pointers, see the scripts under `script
 ## Roadmap
 - Create, edit, and validate rule bodies inline with schema validation.
 - Preview matched response given sample request and metadata.
+
+## Documentation
+
+- **[Quick Reference](docs/quick-reference.md)** - Command cheatsheet and common patterns
+- **[Global Installation Guide](docs/global-installation.md)** - Complete guide for npm global install
+- **[Admin API Reference](API.md)** - REST API endpoints documentation
+- **[Rule Examples](docs/rule-examples.md)** - Comprehensive rule patterns and examples
+- **[Validation Guide](docs/pgv-validation.md)** - Protovalidate and PGV validation setup
+- **[Protovalidate Guide](docs/protovalidate-validation.md)** - Buf Protovalidate integration
 
 ## Development
 This project was developed with AI assistance to accelerate development and ensure comprehensive feature coverage.

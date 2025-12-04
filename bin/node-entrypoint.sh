@@ -14,7 +14,7 @@ if [ "${ENABLE_MCP:-false}" = "true" ]; then
 fi
 
 if [ "${ENABLE_MCP_SSE:-false}" = "true" ]; then
-  echo "[node-entrypoint] ENABLE_MCP_SSE=true → starting MCP (SSE) in background on ${MCP_HTTP_HOST:-0.0.0.0}:${MCP_HTTP_PORT:-9090}"
+  echo "[node-entrypoint] ENABLE_MCP_SSE=true → starting MCP (SSE) in background on ${MCP_HTTP_HOST:-0.0.0.0}:${MCP_HTTP_PORT:-9797}"
   node /app/dist/mcp/server.sse.js &
 fi
 
@@ -25,4 +25,3 @@ else
   echo "[node-entrypoint] starting wishmock gRPC/HTTP server (single process)"
   exec node /app/dist/app.js
 fi
-

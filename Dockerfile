@@ -63,7 +63,7 @@ RUN apk add --no-cache protobuf bash
 COPY bin/entrypoint.sh ./bin/entrypoint.sh
 RUN chmod +x ./bin/entrypoint.sh
 
-EXPOSE 50050 50051 3000 9090
+EXPOSE 50050 50051 4319 9797
 
 # Use entrypoint to optionally launch MCP server before main app
 ENTRYPOINT ["/app/bin/entrypoint.sh"]

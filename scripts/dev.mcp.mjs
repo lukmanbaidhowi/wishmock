@@ -24,7 +24,7 @@ if (transport === 'stdio') {
 } else {
   console.log(`[dev.mcp] MCP transport=sse (bun dist/mcp/server.sse.js)`);
   const host = Bun.env.MCP_HTTP_HOST || '127.0.0.1';
-  const port = Bun.env.MCP_HTTP_PORT || '9090';
+  const port = Bun.env.MCP_HTTP_PORT || '9797';
   console.log(`[dev.mcp] SSE listening on http://${host}:${port}/sse`);
   mcpArgs = ['dist/mcp/server.sse.js'];
 }
@@ -38,4 +38,3 @@ function shutdown(signal) {
 
 process.on('SIGINT', () => shutdown('SIGINT'));
 process.on('SIGTERM', () => shutdown('SIGTERM'));
-

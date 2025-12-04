@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 // Simple healthcheck using Bun's fetch
-const url = process.env.HEALTHCHECK_URL || 'http://localhost:3000/liveness';
+const url = process.env.HEALTHCHECK_URL || 'http://localhost:4319/liveness';
 const timeoutMs = Number(process.env.HEALTHCHECK_TIMEOUT_MS || 2000);
 
 const controller = new AbortController();
@@ -15,4 +15,3 @@ try {
   clearTimeout(t);
   process.exit(1);
 }
-

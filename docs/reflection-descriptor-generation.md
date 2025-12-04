@@ -213,7 +213,7 @@ docker build -t wishmock:latest .
 docker run -p 50050:50050 wishmock:latest
 
 # Upload proto → automatic descriptor regeneration
-curl -X PUT http://localhost:3000/api/protos/my_service.proto \
+curl -X PUT http://localhost:4319/api/protos/my_service.proto \
   -H "Content-Type: application/json" \
   -d '{"content":"syntax = \"proto3\"; ..."}'
 ```

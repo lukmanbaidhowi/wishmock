@@ -1,5 +1,6 @@
 import fs from "fs";
 import path from "path";
+import { fileURLToPath } from "url";
 import { execSync } from "child_process";
 import chokidar from "chokidar";
 import * as grpc from "@grpc/grpc-js";
@@ -20,7 +21,7 @@ const TLS_CERT_PATH = process.env.GRPC_TLS_CERT_PATH || "";
 const TLS_KEY_PATH = process.env.GRPC_TLS_KEY_PATH || "";
 const TLS_CA_PATH = process.env.GRPC_TLS_CA_PATH || ""; // if provided, can enable mTLS
 const TLS_REQUIRE_CLIENT_CERT = String(process.env.GRPC_TLS_REQUIRE_CLIENT_CERT || "").toLowerCase();
-const HTTP_PORT = process.env.HTTP_PORT || 3000;
+const HTTP_PORT = process.env.HTTP_PORT || 4319;
 const PROTO_DIR = path.resolve("protos");
 const RULES_ROOT = path.resolve("rules");
 const RULE_DIR = path.resolve(RULES_ROOT, "grpc");
@@ -55,10 +56,15 @@ async function regenerateDescriptors() {
       log("Reflection descriptor regeneration disabled by env (REFLECTION_DISABLE_REGEN)");
       return;
     }
-    const scriptPath = path.resolve("scripts/generate-descriptor-set.sh");
-    if (!fs.existsSync(scriptPath)) {
-      throw new Error("Descriptor generation script not found");
-    }
+    // Locate the descriptor generation script either in the current working directory
+    // or bundled within the installed package (published with files: ["scripts/"])
+    const localScriptPath = path.resolve("scripts/generate-descriptor-set.sh");
+    const moduleDir = path.dirname(fileURLToPath(import.meta.url));
+    const packageScriptPath = path.resolve(moduleDir, "../scripts/generate-descriptor-set.sh");
+    const scriptPath = fs.existsSync(localScriptPath)
+      ? localScriptPath
+      : (fs.existsSync(packageScriptPath) ? packageScriptPath : "");
+    if (!scriptPath) throw new Error("Descriptor generation script not found");
     
     const descriptorPath = path.resolve('bin/.descriptors.bin');
     

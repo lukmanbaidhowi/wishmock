@@ -26,7 +26,7 @@ function stripTrailingSlashes(value: string): string {
   return trimmed;
 }
 
-const ADMIN_BASE_URL = stripTrailingSlashes(process.env.ADMIN_BASE_URL || `http://localhost:${process.env.HTTP_PORT || '3000'}`);
+const ADMIN_BASE_URL = stripTrailingSlashes(process.env.ADMIN_BASE_URL || `http://localhost:${process.env.HTTP_PORT || '4319'}`);
 const schemaBase = (url?: string) => stripTrailingSlashes(url || ADMIN_BASE_URL);
 
 export async function start() {

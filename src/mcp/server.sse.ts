@@ -24,10 +24,10 @@ function stripTrailingSlashes(value: string): string {
   return trimmed;
 }
 
-const ADMIN_BASE_URL = stripTrailingSlashes(process.env.ADMIN_BASE_URL || `http://localhost:${process.env.HTTP_PORT || '3000'}`);
+const ADMIN_BASE_URL = stripTrailingSlashes(process.env.ADMIN_BASE_URL || `http://localhost:${process.env.HTTP_PORT || '4319'}`);
 const schemaBase = (url?: string) => stripTrailingSlashes(url || ADMIN_BASE_URL);
 
-const MCP_HTTP_PORT = parseInt(process.env.MCP_HTTP_PORT || '9090', 10);
+const MCP_HTTP_PORT = parseInt(process.env.MCP_HTTP_PORT || '9797', 10);
 const MCP_HTTP_HOST = process.env.MCP_HTTP_HOST || '0.0.0.0';
 
 // Protocol negotiation

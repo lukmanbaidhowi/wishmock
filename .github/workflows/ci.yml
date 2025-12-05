@@ -116,6 +116,9 @@ jobs:
         with:
           bun-version: '1.2.20'
 
+      - name: Prepare npm README
+        run: cp NPM_README.md README.md
+
       - name: Install dependencies
         run: bun install --frozen-lockfile
 

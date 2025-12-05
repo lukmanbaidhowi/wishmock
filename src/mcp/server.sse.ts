@@ -7,14 +7,21 @@
 
 import express from 'express';
 import { promises as fs } from 'fs';
-import { resolve } from 'path';
+import { resolve, dirname } from 'path';
 import http from 'http';
 import { fileURLToPath } from 'url';
 
 type Json = any;
 import { ensureDir, listFiles, resolveBasePaths, safeJson, httpGetJson } from './utils.js';
+const MODULE_FILENAME = fileURLToPath(import.meta.url);
+const MODULE_DIR = dirname(MODULE_FILENAME);
+const PACKAGE_BASE_DIR = resolve(MODULE_DIR, '..', '..');
 const { BASE_DIR, RULES_DIR, PROTOS_DIR } = resolveBasePaths(import.meta.url);
 const RULE_EXAMPLES_PATH = resolve(BASE_DIR, process.env.WISHMOCK_RULES_EXAMPLES_PATH || 'docs/rule-examples.md');
+const GLOBAL_RULE_EXAMPLES_PATH = resolve(PACKAGE_BASE_DIR, 'docs', 'rule-examples.md');
+const RULE_EXAMPLES_SEARCH_PATHS = RULE_EXAMPLES_PATH === GLOBAL_RULE_EXAMPLES_PATH
+  ? [RULE_EXAMPLES_PATH]
+  : [RULE_EXAMPLES_PATH, GLOBAL_RULE_EXAMPLES_PATH];
 // Keep MCP defaults aligned with configurable Admin HTTP port.
 function stripTrailingSlashes(value: string): string {
   let trimmed = value;
@@ -119,13 +126,21 @@ async function tool_describeSchema(args: { type: string; url?: string }) {
   const base = schemaBase(args.url);
   return await httpGetJson(`${base}/admin/schema/${encodeURIComponent(args.type)}`);
 }
-async function tool_ruleExamples() {
-  try {
-    const text = await fs.readFile(RULE_EXAMPLES_PATH, 'utf8');
-    return { path: RULE_EXAMPLES_PATH, content: text };
-  } catch (err: any) {
-    return { error: `Rule examples file not found at ${RULE_EXAMPLES_PATH}: ${err?.message || 'missing file'}` };
+async function readRuleExamplesFile(): Promise<{ path: string; content: string } | null> {
+  for (const path of RULE_EXAMPLES_SEARCH_PATHS) {
+    try {
+      const content = await fs.readFile(path, 'utf8');
+      return { path, content };
+    } catch (err: any) {
+      if (err?.code && err.code !== 'ENOENT') throw err;
+    }
   }
+  return null;
+}
+async function tool_ruleExamples() {
+  const result = await readRuleExamplesFile();
+  if (result) return { path: result.path, content: result.content };
+  return { error: `Rule examples file not found. Looked in: ${RULE_EXAMPLES_SEARCH_PATHS.join(', ')}` };
 }
 
 async function listResources() {
@@ -318,7 +333,7 @@ export default start;
 // Works in both Bun and Node ESM environments.
 const isDirectRun = (() => {
   try {
-    return !!(process?.argv?.[1] && fileURLToPath(import.meta.url) === process.argv[1]);
+    return !!(process?.argv?.[1] && MODULE_FILENAME === process.argv[1]);
   } catch {
     return false;
   }

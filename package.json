@@ -1,9 +1,13 @@
 {
   "name": "wishmock",
   "type": "module",
-  "description": "Bun/Node gRPC mock server with protobufjs, hot reload, and rule-based responses",
-  "version": "0.9.3",
+  "description": "gRPC mock server with protobufjs, hot reload, and rule-based responses",
+  "version": "0.9.4",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/lukmanbaidhowi/wishmock.git"
+  },
   "main": "dist/app.js",
   "bin": {
     "wishmock": "bin/wishmock.js",
@@ -15,7 +19,8 @@
     "scripts/generate-descriptor-set.sh",
     "scripts/get-loadable-protos.mjs",
     "frontend/",
-    "README.md"
+    "README.md",
+    "docs/rule-examples.md"
   ],
   "engines": {
     "node": ">=18"

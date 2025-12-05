@@ -6,7 +6,23 @@ set -euo pipefail
 # wholesale so imports are always available for reflection.
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+
+# Prefer the caller's working directory (project root) so the script works when
+# invoked from a globally installed package. Fall back to the script directory
+# for local development / Docker builds.
+if [ -n "${WISHMOCK_PROJECT_ROOT:-}" ]; then
+  PROJECT_ROOT="$(cd "$WISHMOCK_PROJECT_ROOT" && pwd)"
+else
+  CALLER_ROOT="$(pwd)"
+  if [ -d "$CALLER_ROOT/protos" ]; then
+    PROJECT_ROOT="$CALLER_ROOT"
+  elif [ -d "$SCRIPT_DIR/../protos" ]; then
+    PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+  else
+    PROJECT_ROOT="$CALLER_ROOT"
+  fi
+fi
+
 PROTOS_DIR="$PROJECT_ROOT/protos"
 OUTPUT_FILE="$PROJECT_ROOT/bin/.descriptors.bin"
 
@@ -17,6 +33,7 @@ if ! command -v protoc >/dev/null 2>&1; then
   exit 1
 fi
 
+mkdir -p "$PROTOS_DIR"
 mkdir -p "$(dirname "$OUTPUT_FILE")"
 
 echo "[generate-descriptor-set] Detecting main protos (protobufjs)..."
@@ -42,8 +59,7 @@ if [ -z "$LOADABLE_FILES" ]; then
   done
 fi
 if [ -z "$LOADABLE_FILES" ]; then
-  echo "[generate-descriptor-set] ERROR: No top-level proto files loadable by protobufjs"
-  exit 1
+  echo "[generate-descriptor-set] WARNING: No top-level proto files loadable by protobufjs (checked $PROTOS_DIR)"
 fi
 
 read -r -a MAIN_NAMES <<<"$LOADABLE_FILES"
@@ -78,8 +94,10 @@ for proto in "${MAIN_PATHS[@]}" "${IMPORT_PATHS[@]}"; do
 done
 
 if [ ${#PROTO_FILES[@]} -eq 0 ]; then
-  echo "[generate-descriptor-set] ERROR: No proto files selected"
-  exit 1
+  echo "[generate-descriptor-set] No proto files detected; generating empty descriptor set..."
+  : >"$OUTPUT_FILE"
+  echo "[generate-descriptor-set] ✓ Generated $OUTPUT_FILE (0B)"
+  exit 0
 fi
 
 TOTAL_COUNT=${#PROTO_FILES[@]}

@@ -2,7 +2,7 @@
 // Entry for npx / global install. Assumes TypeScript has been compiled to dist/.
 // The app bootstraps and starts on import.
 
-import { readFileSync } from 'fs';
+import { readFileSync, existsSync, symlinkSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, resolve } from 'path';
 import { execSync } from 'child_process';
@@ -76,6 +76,27 @@ Documentation:
   process.exit(0);
 }
 
+function ensureFrontendLinked() {
+  try {
+    const cwdFrontend = resolve(process.cwd(), 'frontend');
+    if (existsSync(cwdFrontend)) {
+      return;
+    }
+
+    const globalFrontend = resolve(__dirname, '../frontend');
+    if (!existsSync(globalFrontend)) {
+      return;
+    }
+
+    const symlinkType = process.platform === 'win32' ? 'junction' : 'dir';
+    symlinkSync(globalFrontend, cwdFrontend, symlinkType);
+    console.log('[wishmock] linked bundled frontend assets into ./frontend');
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.warn(`[wishmock] failed to link frontend assets automatically: ${message}`);
+  }
+}
+
 // Check if protoc is available (cross-platform)
 function hasProtoc() {
   try {
@@ -100,6 +121,8 @@ if (!process.env.REFLECTION_DISABLE_REGEN) {
     process.env.REFLECTION_DISABLE_REGEN = '1';
   }
 }
+
+ensureFrontendLinked();
 
 // Start the server
 (async () => {

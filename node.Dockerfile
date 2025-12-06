@@ -51,6 +51,6 @@ COPY bin/cluster.mjs ./bin/cluster.mjs
 COPY bin/node-entrypoint.sh ./bin/node-entrypoint.sh
 RUN chmod +x ./bin/cluster.mjs ./bin/node-entrypoint.sh
 
-EXPOSE 50050 50051 4319 9797
+EXPOSE 50050 50051 50052 4319 9797
 
 ENTRYPOINT ["/app/bin/node-entrypoint.sh"]

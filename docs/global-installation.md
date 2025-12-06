@@ -46,7 +46,7 @@ wishmock
 ```
 
 The server will start with:
-- **Connect RPC**: `http://localhost:50052` (HTTP/1.1 and HTTP/2)
+- **Connect RPC**: `http://localhost:50052` (HTTP/1.1 and HTTP/2, enabled by default)
 - **gRPC (plaintext)**: `localhost:50050`
 - **gRPC (TLS)**: `localhost:50051` (if certs configured)
 - **HTTP Admin API**: `localhost:4319`
@@ -148,10 +148,12 @@ GRPC_PORT_PLAINTEXT=50050         # Native gRPC (plaintext)
 GRPC_PORT_TLS=50051               # Native gRPC (TLS)
 CONNECT_PORT=50052                # Connect RPC (HTTP/1.1 and HTTP/2)
 
-# Connect RPC
+# Connect RPC (enabled by default)
 CONNECT_ENABLED=true              # Enable Connect RPC (default: true)
+CONNECT_PORT=50052                # Connect RPC port (default: 50052)
 CONNECT_CORS_ENABLED=true         # Enable CORS for browsers (default: true)
 CONNECT_CORS_ORIGINS=*            # Allowed origins (default: *)
+CONNECT_TLS_ENABLED=false         # Enable TLS for Connect RPC (default: false)
 
 # TLS (optional)
 GRPC_TLS_ENABLED=false
@@ -368,6 +370,18 @@ grpcurl -plaintext localhost:50050 list
 
 # Cleanup
 kill $WISHMOCK_PID
+```
+
+### 6. Docker with Connect RPC
+
+```bash
+# Run with Connect RPC exposed
+docker run -p 50050:50050 -p 50052:50052 -p 4319:4319 wishmock
+
+# Test Connect RPC
+curl -X POST http://localhost:50052/helloworld.Greeter/SayHello \
+  -H "Content-Type: application/json" \
+  -d '{"name":"Docker"}'
 ```
 
 ## Troubleshooting

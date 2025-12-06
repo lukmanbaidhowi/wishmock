@@ -39,7 +39,11 @@ Environment Variables:
   HTTP_PORT                   HTTP admin API port (default: 4319)
   GRPC_PORT_PLAINTEXT         gRPC plaintext port (default: 50050)
   GRPC_PORT_TLS               gRPC TLS port (default: 50051)
-  GRPC_TLS_ENABLED            Enable TLS (true/false)
+  GRPC_TLS_ENABLED            Enable TLS (true/false, default: false)
+  CONNECT_ENABLED             Enable Connect RPC (true/false, default: true)
+  CONNECT_PORT                Connect RPC port (default: 50052)
+  CONNECT_CORS_ENABLED        Enable CORS for Connect RPC (true/false, default: true)
+  CONNECT_TLS_ENABLED         Enable TLS for Connect RPC (true/false, default: false)
   VALIDATION_ENABLED          Enable request validation (true/false)
   HOT_RELOAD_PROTOS           Enable proto hot reload (true/false)
   HOT_RELOAD_RULES            Enable rule hot reload (true/false)
@@ -60,11 +64,18 @@ Examples:
   # Start with validation enabled
   VALIDATION_ENABLED=true wishmock
 
-  # Test your service
-  grpcurl -plaintext localhost:50050 list
+  # Check server status (works without protoc)
   curl http://localhost:4319/admin/status
 
+  # Test Connect RPC endpoint (works without protoc)
+  curl http://localhost:50052/your.package.Service/Method -H "Content-Type: application/json" -d '{}'
+
+  # List services via reflection (requires protoc installed)
+  grpcurl -plaintext localhost:50050 list
+
 Notes:
+  - Connect RPC is enabled by default on port 50052 (supports browsers without proxies)
+  - Connect RPC supports three protocols: Connect, gRPC-Web, and gRPC
   - protoc is auto-detected; if missing, reflection is disabled but server runs normally
   - Validation works without protoc (uses runtime proto parsing)
   - Install protoc for grpcurl reflection: https://protobuf.dev/installation/

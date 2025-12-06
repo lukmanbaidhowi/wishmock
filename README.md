@@ -89,6 +89,7 @@ wishmock
 ```
 
 Server runs on:
+- Connect RPC: `http://localhost:50052` (HTTP/1.1 and HTTP/2, enabled by default)
 - gRPC (plaintext): `localhost:50050`
 - HTTP Admin API: `localhost:4319`
 - Web UI: `http://localhost:4319/app/`
@@ -368,7 +369,8 @@ bash scripts/generate-web-auth-cert.sh
 docker compose up --build
 ```
 
-- Exposes: gRPC plaintext on `50050`, gRPC TLS on `50051`, Admin HTTP on `3000`.
+- Exposes: Connect RPC on `50052`, gRPC plaintext on `50050`, gRPC TLS on `50051`, Admin HTTP on `3000`.
+- Connect RPC is enabled by default on port `50052`.
 - TLS is enabled by default in docker-compose.yml with certificates from `./certs/`.
 
 Healthcheck:
@@ -384,6 +386,8 @@ To disable TLS, comment out the TLS environment variables and port mapping in `d
 # - GRPC_TLS_KEY_PATH=/app/certs/server.key
 # - GRPC_TLS_CA_PATH=/app/certs/ca.crt
 ```
+
+**Note:** Connect RPC is enabled by default. To disable it, set `CONNECT_ENABLED=false` in the environment variables.
 
 grpcurl with TLS/mTLS (Docker TLS enabled by default):
 ```bash
@@ -543,9 +547,9 @@ bun run start
 ```
 
 Server runs on:
+- Connect RPC: `http://localhost:50052` (HTTP/1.1 and HTTP/2, enabled by default)
 - gRPC (plaintext): `localhost:50050`
 - gRPC (TLS): `localhost:50051` (if enabled)
-- Connect RPC: `localhost:50052`
 - HTTP Admin API: `localhost:4319`
 
 ### Configuration

@@ -47,6 +47,7 @@ codex*.log
 /AGENTS.md
 /GEMINI.md
 .amazonq/
+.kiro/
 
 # spec-kit generated files
 .specify/

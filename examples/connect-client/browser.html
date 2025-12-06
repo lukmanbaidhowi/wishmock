@@ -1,0 +1,356 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Connect RPC Browser Client Example</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 20px;
+      background: #f5f5f5;
+    }
+    h1 {
+      color: #333;
+      border-bottom: 2px solid #007bff;
+      padding-bottom: 10px;
+    }
+    h2 {
+      color: #555;
+      margin-top: 30px;
+    }
+    .section {
+      background: white;
+      padding: 20px;
+      margin: 20px 0;
+      border-radius: 8px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    .form-group {
+      margin: 15px 0;
+    }
+    label {
+      display: block;
+      margin-bottom: 5px;
+      font-weight: 500;
+      color: #555;
+    }
+    input, textarea {
+      width: 100%;
+      padding: 8px;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      font-size: 14px;
+      box-sizing: border-box;
+    }
+    textarea {
+      min-height: 100px;
+      font-family: monospace;
+    }
+    button {
+      background: #007bff;
+      color: white;
+      border: none;
+      padding: 10px 20px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 14px;
+      margin-right: 10px;
+    }
+    button:hover {
+      background: #0056b3;
+    }
+    button:disabled {
+      background: #ccc;
+      cursor: not-allowed;
+    }
+    .output {
+      background: #f8f9fa;
+      border: 1px solid #dee2e6;
+      border-radius: 4px;
+      padding: 15px;
+      margin-top: 15px;
+      white-space: pre-wrap;
+      font-family: monospace;
+      font-size: 13px;
+      max-height: 400px;
+      overflow-y: auto;
+    }
+    .error {
+      color: #dc3545;
+      background: #f8d7da;
+      border-color: #f5c6cb;
+    }
+    .success {
+      color: #155724;
+      background: #d4edda;
+      border-color: #c3e6cb;
+    }
+    .info {
+      color: #004085;
+      background: #cce5ff;
+      border-color: #b8daff;
+    }
+    .stream-message {
+      padding: 8px;
+      margin: 5px 0;
+      background: #e7f3ff;
+      border-left: 3px solid #007bff;
+      border-radius: 3px;
+    }
+    code {
+      background: #f4f4f4;
+      padding: 2px 6px;
+      border-radius: 3px;
+      font-family: monospace;
+    }
+  </style>
+</head>
+<body>
+  <h1>🔌 Connect RPC Browser Client Example</h1>
+  
+  <div class="section">
+    <h2>Configuration</h2>
+    <div class="form-group">
+      <label for="serverUrl">Server URL:</label>
+      <input type="text" id="serverUrl" value="http://localhost:50052" placeholder="http://localhost:50052">
+    </div>
+    <p><strong>Note:</strong> Make sure Wishmock is running with Connect RPC enabled (<code>CONNECT_ENABLED=true</code>)</p>
+  </div>
+
+  <div class="section">
+    <h2>1. Unary RPC - SayHello</h2>
+    <p>Simple request-response call to the <code>helloworld.Greeter/SayHello</code> service.</p>
+    
+    <div class="form-group">
+      <label for="unaryName">Name:</label>
+      <input type="text" id="unaryName" value="World" placeholder="Enter your name">
+    </div>
+    
+    <button onclick="callUnaryRPC()">Call SayHello</button>
+    <div id="unaryOutput" class="output"></div>
+  </div>
+
+  <div class="section">
+    <h2>2. Server Streaming RPC - GetMessages</h2>
+    <p>Server streaming call to <code>streaming.StreamService/GetMessages</code> that returns multiple messages.</p>
+    
+    <div class="form-group">
+      <label for="streamUserId">User ID:</label>
+      <input type="text" id="streamUserId" value="user123" placeholder="Enter user ID">
+    </div>
+    
+    <div class="form-group">
+      <label for="streamLimit">Message Limit:</label>
+      <input type="number" id="streamLimit" value="5" placeholder="Number of messages">
+    </div>
+    
+    <button onclick="callServerStreamRPC()">Start Streaming</button>
+    <button onclick="cancelStream()" id="cancelStreamBtn" disabled>Cancel Stream</button>
+    <div id="streamOutput" class="output"></div>
+  </div>
+
+  <div class="section">
+    <h2>3. Custom Request with JSON</h2>
+    <p>Send a custom JSON request to any service method.</p>
+    
+    <div class="form-group">
+      <label for="customService">Service Path:</label>
+      <input type="text" id="customService" value="helloworld.Greeter/SayHello" placeholder="package.Service/Method">
+    </div>
+    
+    <div class="form-group">
+      <label for="customRequest">Request JSON:</label>
+      <textarea id="customRequest">{"name": "CustomUser"}</textarea>
+    </div>
+    
+    <button onclick="callCustomRPC()">Send Request</button>
+    <div id="customOutput" class="output"></div>
+  </div>
+
+  <script type="module">
+    // Store abort controller for stream cancellation
+    let streamAbortController = null;
+
+    // Make functions globally available
+    window.callUnaryRPC = callUnaryRPC;
+    window.callServerStreamRPC = callServerStreamRPC;
+    window.cancelStream = cancelStream;
+    window.callCustomRPC = callCustomRPC;
+
+    /**
+     * Call a unary RPC using Connect protocol
+     */
+    async function callUnaryRPC() {
+      const serverUrl = document.getElementById('serverUrl').value;
+      const name = document.getElementById('unaryName').value;
+      const output = document.getElementById('unaryOutput');
+      
+      output.textContent = 'Calling SayHello...';
+      output.className = 'output info';
+      
+      try {
+        const response = await fetch(`${serverUrl}/helloworld.Greeter/SayHello`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Connect-Protocol-Version': '1',
+          },
+          body: JSON.stringify({
+            name: name
+          })
+        });
+        
+        if (!response.ok) {
+          const error = await response.json();
+          throw new Error(`${error.code}: ${error.message}`);
+        }
+        
+        const result = await response.json();
+        output.textContent = `✅ Success!\n\nResponse:\n${JSON.stringify(result, null, 2)}`;
+        output.className = 'output success';
+      } catch (error) {
+        output.textContent = `❌ Error:\n${error.message}`;
+        output.className = 'output error';
+      }
+    }
+
+    /**
+     * Call a server streaming RPC using Connect protocol
+     */
+    async function callServerStreamRPC() {
+      const serverUrl = document.getElementById('serverUrl').value;
+      const userId = document.getElementById('streamUserId').value;
+      const limit = parseInt(document.getElementById('streamLimit').value);
+      const output = document.getElementById('streamOutput');
+      const cancelBtn = document.getElementById('cancelStreamBtn');
+      
+      output.innerHTML = '<div class="info">Starting stream...</div>';
+      cancelBtn.disabled = false;
+      
+      // Create abort controller for cancellation
+      streamAbortController = new AbortController();
+      
+      try {
+        const response = await fetch(`${serverUrl}/streaming.StreamService/GetMessages`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Connect-Protocol-Version': '1',
+            'Connect-Accept-Encoding': 'identity',
+          },
+          body: JSON.stringify({
+            user_id: userId,
+            limit: limit
+          }),
+          signal: streamAbortController.signal
+        });
+        
+        if (!response.ok) {
+          const error = await response.json();
+          throw new Error(`${error.code}: ${error.message}`);
+        }
+        
+        // Read the stream
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+        let messageCount = 0;
+        
+        output.innerHTML = '<div class="info">📡 Receiving messages...</div>';
+        
+        while (true) {
+          const { done, value } = await reader.read();
+          
+          if (done) {
+            output.innerHTML += `<div class="success">✅ Stream completed. Received ${messageCount} messages.</div>`;
+            break;
+          }
+          
+          buffer += decoder.decode(value, { stream: true });
+          
+          // Process complete JSON messages (newline-delimited)
+          const lines = buffer.split('\n');
+          buffer = lines.pop() || ''; // Keep incomplete line in buffer
+          
+          for (const line of lines) {
+            if (line.trim()) {
+              try {
+                const message = JSON.parse(line);
+                messageCount++;
+                output.innerHTML += `<div class="stream-message">
+                  <strong>Message ${messageCount}:</strong><br>
+                  ${JSON.stringify(message, null, 2)}
+                </div>`;
+                // Auto-scroll to bottom
+                output.scrollTop = output.scrollHeight;
+              } catch (e) {
+                console.error('Failed to parse message:', line, e);
+              }
+            }
+          }
+        }
+      } catch (error) {
+        if (error.name === 'AbortError') {
+          output.innerHTML += '<div class="info">⚠️ Stream cancelled by user</div>';
+        } else {
+          output.innerHTML += `<div class="error">❌ Error: ${error.message}</div>`;
+        }
+      } finally {
+        cancelBtn.disabled = true;
+        streamAbortController = null;
+      }
+    }
+
+    /**
+     * Cancel the active stream
+     */
+    function cancelStream() {
+      if (streamAbortController) {
+        streamAbortController.abort();
+      }
+    }
+
+    /**
+     * Call a custom RPC with user-provided service path and JSON
+     */
+    async function callCustomRPC() {
+      const serverUrl = document.getElementById('serverUrl').value;
+      const servicePath = document.getElementById('customService').value;
+      const requestJson = document.getElementById('customRequest').value;
+      const output = document.getElementById('customOutput');
+      
+      output.textContent = `Calling ${servicePath}...`;
+      output.className = 'output info';
+      
+      try {
+        // Validate JSON
+        const requestData = JSON.parse(requestJson);
+        
+        const response = await fetch(`${serverUrl}/${servicePath}`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Connect-Protocol-Version': '1',
+          },
+          body: JSON.stringify(requestData)
+        });
+        
+        if (!response.ok) {
+          const error = await response.json();
+          throw new Error(`${error.code}: ${error.message}`);
+        }
+        
+        const result = await response.json();
+        output.textContent = `✅ Success!\n\nResponse:\n${JSON.stringify(result, null, 2)}`;
+        output.className = 'output success';
+      } catch (error) {
+        output.textContent = `❌ Error:\n${error.message}`;
+        output.className = 'output error';
+      }
+    }
+  </script>
+</body>
+</html>

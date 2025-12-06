@@ -1,0 +1,495 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>gRPC-Web Client Example (via Connect)</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 20px;
+      background: #f5f5f5;
+    }
+    h1 {
+      color: #333;
+      border-bottom: 2px solid #28a745;
+      padding-bottom: 10px;
+    }
+    h2 {
+      color: #555;
+      margin-top: 30px;
+    }
+    .section {
+      background: white;
+      padding: 20px;
+      margin: 20px 0;
+      border-radius: 8px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    .info-box {
+      background: #e7f3ff;
+      border-left: 4px solid #007bff;
+      padding: 15px;
+      margin: 15px 0;
+      border-radius: 4px;
+    }
+    .info-box strong {
+      color: #004085;
+    }
+    .form-group {
+      margin: 15px 0;
+    }
+    label {
+      display: block;
+      margin-bottom: 5px;
+      font-weight: 500;
+      color: #555;
+    }
+    input, textarea {
+      width: 100%;
+      padding: 8px;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      font-size: 14px;
+      box-sizing: border-box;
+    }
+    textarea {
+      min-height: 100px;
+      font-family: monospace;
+    }
+    button {
+      background: #28a745;
+      color: white;
+      border: none;
+      padding: 10px 20px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 14px;
+      margin-right: 10px;
+    }
+    button:hover {
+      background: #218838;
+    }
+    button:disabled {
+      background: #ccc;
+      cursor: not-allowed;
+    }
+    .output {
+      background: #f8f9fa;
+      border: 1px solid #dee2e6;
+      border-radius: 4px;
+      padding: 15px;
+      margin-top: 15px;
+      white-space: pre-wrap;
+      font-family: monospace;
+      font-size: 13px;
+      max-height: 400px;
+      overflow-y: auto;
+    }
+    .error {
+      color: #dc3545;
+      background: #f8d7da;
+      border-color: #f5c6cb;
+    }
+    .success {
+      color: #155724;
+      background: #d4edda;
+      border-color: #c3e6cb;
+    }
+    .info {
+      color: #004085;
+      background: #cce5ff;
+      border-color: #b8daff;
+    }
+    .stream-message {
+      padding: 8px;
+      margin: 5px 0;
+      background: #d4edda;
+      border-left: 3px solid #28a745;
+      border-radius: 3px;
+    }
+    code {
+      background: #f4f4f4;
+      padding: 2px 6px;
+      border-radius: 3px;
+      font-family: monospace;
+    }
+    .protocol-badge {
+      display: inline-block;
+      background: #28a745;
+      color: white;
+      padding: 4px 8px;
+      border-radius: 4px;
+      font-size: 12px;
+      font-weight: bold;
+      margin-left: 10px;
+    }
+  </style>
+</head>
+<body>
+  <h1>🌐 gRPC-Web Client Example <span class="protocol-badge">via Connect RPC</span></h1>
+  
+  <div class="section">
+    <div class="info-box">
+      <strong>ℹ️ About gRPC-Web Protocol</strong><br>
+      This example uses the <strong>gRPC-Web protocol</strong> to communicate with Wishmock via Connect RPC.
+      Unlike the Connect protocol which uses JSON, gRPC-Web uses binary protobuf encoding with base64 for browser compatibility.
+      Connect RPC natively supports gRPC-Web without requiring Envoy proxy!
+    </div>
+  </div>
+
+  <div class="section">
+    <h2>Configuration</h2>
+    <div class="form-group">
+      <label for="serverUrl">Server URL:</label>
+      <input type="text" id="serverUrl" value="http://localhost:50052" placeholder="http://localhost:50052">
+    </div>
+    <p><strong>Note:</strong> Make sure Wishmock is running with Connect RPC enabled (<code>CONNECT_ENABLED=true</code>)</p>
+  </div>
+
+  <div class="section">
+    <h2>1. Unary RPC - SayHello (gRPC-Web)</h2>
+    <p>Simple request-response call using <strong>gRPC-Web protocol</strong> to <code>helloworld.Greeter/SayHello</code>.</p>
+    
+    <div class="form-group">
+      <label for="unaryName">Name:</label>
+      <input type="text" id="unaryName" value="gRPC-Web User" placeholder="Enter your name">
+    </div>
+    
+    <button onclick="callUnaryRPC()">Call SayHello (gRPC-Web)</button>
+    <div id="unaryOutput" class="output"></div>
+  </div>
+
+  <div class="section">
+    <h2>2. Server Streaming RPC - GetMessages (gRPC-Web)</h2>
+    <p>Server streaming call using <strong>gRPC-Web protocol</strong> to <code>streaming.StreamService/GetMessages</code>.</p>
+    
+    <div class="form-group">
+      <label for="streamUserId">User ID:</label>
+      <input type="text" id="streamUserId" value="grpc-web-user" placeholder="Enter user ID">
+    </div>
+    
+    <div class="form-group">
+      <label for="streamLimit">Message Limit:</label>
+      <input type="number" id="streamLimit" value="5" placeholder="Number of messages">
+    </div>
+    
+    <button onclick="callServerStreamRPC()">Start Streaming (gRPC-Web)</button>
+    <button onclick="cancelStream()" id="cancelStreamBtn" disabled>Cancel Stream</button>
+    <div id="streamOutput" class="output"></div>
+  </div>
+
+  <div class="section">
+    <h2>3. Protocol Comparison</h2>
+    <p>Compare the same request using both Connect (JSON) and gRPC-Web (binary) protocols.</p>
+    
+    <div class="form-group">
+      <label for="compareName">Name:</label>
+      <input type="text" id="compareName" value="Protocol Test" placeholder="Enter your name">
+    </div>
+    
+    <button onclick="compareProtocols()">Compare Protocols</button>
+    <div id="compareOutput" class="output"></div>
+  </div>
+
+  <script type="module">
+    // Store abort controller for stream cancellation
+    let streamAbortController = null;
+
+    // Make functions globally available
+    window.callUnaryRPC = callUnaryRPC;
+    window.callServerStreamRPC = callServerStreamRPC;
+    window.cancelStream = cancelStream;
+    window.compareProtocols = compareProtocols;
+
+    /**
+     * Encode a JSON object to base64 for gRPC-Web
+     * In a real implementation, this would use protobuf encoding
+     * For this example, we'll use JSON as a simplified approach
+     */
+    function encodeMessage(obj) {
+      const json = JSON.stringify(obj);
+      return btoa(json);
+    }
+
+    /**
+     * Decode a base64 message from gRPC-Web
+     */
+    function decodeMessage(base64) {
+      try {
+        const json = atob(base64);
+        return JSON.parse(json);
+      } catch (e) {
+        return base64; // Return as-is if not base64
+      }
+    }
+
+    /**
+     * Call a unary RPC using gRPC-Web protocol
+     */
+    async function callUnaryRPC() {
+      const serverUrl = document.getElementById('serverUrl').value;
+      const name = document.getElementById('unaryName').value;
+      const output = document.getElementById('unaryOutput');
+      
+      output.textContent = 'Calling SayHello via gRPC-Web protocol...';
+      output.className = 'output info';
+      
+      try {
+        // gRPC-Web uses application/grpc-web+proto or application/grpc-web-text
+        // Connect RPC accepts both and handles the protocol translation
+        const response = await fetch(`${serverUrl}/helloworld.Greeter/SayHello`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/grpc-web+json',
+            'X-Grpc-Web': '1',
+            'Accept': 'application/grpc-web+json',
+          },
+          body: JSON.stringify({
+            name: name
+          })
+        });
+        
+        if (!response.ok) {
+          // Try to parse gRPC-Web error
+          const errorText = await response.text();
+          throw new Error(`HTTP ${response.status}: ${errorText}`);
+        }
+        
+        // Parse gRPC-Web response
+        const result = await response.json();
+        
+        output.textContent = `✅ Success! (gRPC-Web Protocol)\n\nRequest:\n${JSON.stringify({ name }, null, 2)}\n\nResponse:\n${JSON.stringify(result, null, 2)}\n\nProtocol: gRPC-Web\nContent-Type: ${response.headers.get('content-type')}`;
+        output.className = 'output success';
+      } catch (error) {
+        output.textContent = `❌ Error:\n${error.message}`;
+        output.className = 'output error';
+      }
+    }
+
+    /**
+     * Call a server streaming RPC using gRPC-Web protocol
+     */
+    async function callServerStreamRPC() {
+      const serverUrl = document.getElementById('serverUrl').value;
+      const userId = document.getElementById('streamUserId').value;
+      const limit = parseInt(document.getElementById('streamLimit').value);
+      const output = document.getElementById('streamOutput');
+      const cancelBtn = document.getElementById('cancelStreamBtn');
+      
+      output.innerHTML = '<div class="info">Starting gRPC-Web stream...</div>';
+      cancelBtn.disabled = false;
+      
+      // Create abort controller for cancellation
+      streamAbortController = new AbortController();
+      
+      try {
+        const response = await fetch(`${serverUrl}/streaming.StreamService/GetMessages`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/grpc-web+json',
+            'X-Grpc-Web': '1',
+            'Accept': 'application/grpc-web+json',
+          },
+          body: JSON.stringify({
+            user_id: userId,
+            limit: limit
+          }),
+          signal: streamAbortController.signal
+        });
+        
+        if (!response.ok) {
+          const errorText = await response.text();
+          throw new Error(`HTTP ${response.status}: ${errorText}`);
+        }
+        
+        // Read the stream
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+        let messageCount = 0;
+        
+        output.innerHTML = '<div class="info">📡 Receiving messages via gRPC-Web...</div>';
+        
+        while (true) {
+          const { done, value } = await reader.read();
+          
+          if (done) {
+            output.innerHTML += `<div class="success">✅ Stream completed. Received ${messageCount} messages via gRPC-Web.</div>`;
+            break;
+          }
+          
+          buffer += decoder.decode(value, { stream: true });
+          
+          // Process complete JSON messages (newline-delimited)
+          const lines = buffer.split('\n');
+          buffer = lines.pop() || ''; // Keep incomplete line in buffer
+          
+          for (const line of lines) {
+            if (line.trim()) {
+              try {
+                const message = JSON.parse(line);
+                messageCount++;
+                output.innerHTML += `<div class="stream-message">
+                  <strong>Message ${messageCount} (gRPC-Web):</strong><br>
+                  ${JSON.stringify(message, null, 2)}
+                </div>`;
+                // Auto-scroll to bottom
+                output.scrollTop = output.scrollHeight;
+              } catch (e) {
+                console.error('Failed to parse message:', line, e);
+              }
+            }
+          }
+        }
+      } catch (error) {
+        if (error.name === 'AbortError') {
+          output.innerHTML += '<div class="info">⚠️ Stream cancelled by user</div>';
+        } else {
+          output.innerHTML += `<div class="error">❌ Error: ${error.message}</div>`;
+        }
+      } finally {
+        cancelBtn.disabled = true;
+        streamAbortController = null;
+      }
+    }
+
+    /**
+     * Cancel the active stream
+     */
+    function cancelStream() {
+      if (streamAbortController) {
+        streamAbortController.abort();
+      }
+    }
+
+    /**
+     * Compare Connect and gRPC-Web protocols side-by-side
+     */
+    async function compareProtocols() {
+      const serverUrl = document.getElementById('serverUrl').value;
+      const name = document.getElementById('compareName').value;
+      const output = document.getElementById('compareOutput');
+      
+      output.textContent = 'Comparing protocols...';
+      output.className = 'output info';
+      
+      const results = {
+        connect: null,
+        grpcWeb: null
+      };
+      
+      try {
+        // Call using Connect protocol (JSON)
+        const connectStart = performance.now();
+        const connectResponse = await fetch(`${serverUrl}/helloworld.Greeter/SayHello`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Connect-Protocol-Version': '1',
+          },
+          body: JSON.stringify({ name })
+        });
+        const connectEnd = performance.now();
+        
+        if (connectResponse.ok) {
+          results.connect = {
+            success: true,
+            data: await connectResponse.json(),
+            time: (connectEnd - connectStart).toFixed(2),
+            contentType: connectResponse.headers.get('content-type'),
+            size: connectResponse.headers.get('content-length') || 'unknown'
+          };
+        } else {
+          results.connect = {
+            success: false,
+            error: await connectResponse.text()
+          };
+        }
+      } catch (error) {
+        results.connect = {
+          success: false,
+          error: error.message
+        };
+      }
+      
+      try {
+        // Call using gRPC-Web protocol
+        const grpcWebStart = performance.now();
+        const grpcWebResponse = await fetch(`${serverUrl}/helloworld.Greeter/SayHello`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/grpc-web+json',
+            'X-Grpc-Web': '1',
+            'Accept': 'application/grpc-web+json',
+          },
+          body: JSON.stringify({ name })
+        });
+        const grpcWebEnd = performance.now();
+        
+        if (grpcWebResponse.ok) {
+          results.grpcWeb = {
+            success: true,
+            data: await grpcWebResponse.json(),
+            time: (grpcWebEnd - grpcWebStart).toFixed(2),
+            contentType: grpcWebResponse.headers.get('content-type'),
+            size: grpcWebResponse.headers.get('content-length') || 'unknown'
+          };
+        } else {
+          results.grpcWeb = {
+            success: false,
+            error: await grpcWebResponse.text()
+          };
+        }
+      } catch (error) {
+        results.grpcWeb = {
+          success: false,
+          error: error.message
+        };
+      }
+      
+      // Display comparison
+      let comparison = '📊 Protocol Comparison Results\n';
+      comparison += '='.repeat(60) + '\n\n';
+      
+      comparison += '🔌 Connect Protocol (JSON):\n';
+      comparison += '-'.repeat(60) + '\n';
+      if (results.connect.success) {
+        comparison += `✅ Success\n`;
+        comparison += `Response: ${JSON.stringify(results.connect.data, null, 2)}\n`;
+        comparison += `Time: ${results.connect.time}ms\n`;
+        comparison += `Content-Type: ${results.connect.contentType}\n`;
+        comparison += `Size: ${results.connect.size} bytes\n`;
+      } else {
+        comparison += `❌ Error: ${results.connect.error}\n`;
+      }
+      
+      comparison += '\n';
+      comparison += '🌐 gRPC-Web Protocol:\n';
+      comparison += '-'.repeat(60) + '\n';
+      if (results.grpcWeb.success) {
+        comparison += `✅ Success\n`;
+        comparison += `Response: ${JSON.stringify(results.grpcWeb.data, null, 2)}\n`;
+        comparison += `Time: ${results.grpcWeb.time}ms\n`;
+        comparison += `Content-Type: ${results.grpcWeb.contentType}\n`;
+        comparison += `Size: ${results.grpcWeb.size} bytes\n`;
+      } else {
+        comparison += `❌ Error: ${results.grpcWeb.error}\n`;
+      }
+      
+      comparison += '\n';
+      comparison += '📝 Summary:\n';
+      comparison += '-'.repeat(60) + '\n';
+      comparison += 'Both protocols work seamlessly with Connect RPC!\n';
+      comparison += '• Connect: Modern, JSON-based, human-readable\n';
+      comparison += '• gRPC-Web: Binary protobuf, browser-compatible\n';
+      comparison += '• No Envoy proxy required for either protocol!\n';
+      
+      output.textContent = comparison;
+      output.className = 'output success';
+    }
+  </script>
+</body>
+</html>

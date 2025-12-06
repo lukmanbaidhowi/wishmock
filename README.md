@@ -25,6 +25,10 @@ The project ships with MCP servers, a multi-stage Docker build (now including Ty
 - [Server Reflection](#server-reflection)
 - [TLS / mTLS](#tls--mtls)
   - [Generate Local Self-Signed Certs](#generate-local-self-signed-certs)
+- [Connect RPC Support](#connect-rpc-support)
+  - [Quick Start](#quick-start)
+  - [Configuration](#configuration)
+  - [Testing Connect RPC](#testing-connect-rpc)
 - [Rule Examples](#rule-examples)
 - [Matching & Operators](#matching--operators)
   - [In Proto](#in-proto)
@@ -63,6 +67,7 @@ The project ships with MCP servers, a multi-stage Docker build (now including Ty
 - **Streaming modes** — Unary, server, client, and bidirectional with delays, loops, and random ordering
 - **Hot reload + zero-downtime** — Watch protos/rules in dev; rolling restarts in Node cluster
 - **TLS/mTLS + reflection** — Plaintext and TLS ports; first-class grpcurl support via server reflection
+- **Connect RPC support** — Native browser support with Connect, gRPC-Web, and gRPC protocols without proxy
 - **Admin API + Web UI + MCP** — REST admin endpoints, static console, and MCP (SDK + SSE) for automation
 - **Docker + compose validation** — Multi-stage image, healthchecks, and scripts for lint/dry-run/smoke with artifacts
 - **Observability & health** — `/`, `/liveness`, `/readiness`, and `/admin/status` with detailed metrics
@@ -196,6 +201,7 @@ Common variables:
 - `GRPC_PORT_PLAINTEXT` (default `50050`; fallback `GRPC_PORT` is also supported)
 - `GRPC_PORT_TLS` (default `50051`)
 - TLS/mTLS: `GRPC_TLS_ENABLED`, `GRPC_TLS_CERT_PATH`, `GRPC_TLS_KEY_PATH`, `GRPC_TLS_CA_PATH`, `GRPC_TLS_REQUIRE_CLIENT_CERT`
+- Connect RPC: `CONNECT_ENABLED`, `CONNECT_PORT`, `CONNECT_CORS_ENABLED`, `CONNECT_CORS_ORIGINS`, `CONNECT_TLS_ENABLED`
 - MCP (optional): `ENABLE_MCP`, `ENABLE_MCP_SSE`, `MCP_HTTP_HOST`, `MCP_HTTP_PORT`, `MCP_TRANSPORT`
 - Validation (optional):
   - `VALIDATION_ENABLED` — enable request validation based on `.proto` annotations (default `false`)
@@ -508,6 +514,179 @@ grpcurl -import-path protos -proto helloworld.proto -d '{"name":"Tom"}' -cacert 
   localhost:50051 helloworld.Greeter/SayHello
 ```
 
+## Connect RPC Support
+
+Wishmock supports Connect RPC, providing native browser support for three protocols without requiring a proxy like Envoy:
+- **Connect protocol** - Modern RPC with JSON and binary formats
+- **gRPC-Web** - Browser-compatible gRPC over HTTP/1.1
+- **gRPC** - Standard gRPC protocol compatibility
+
+All three protocols work with the same rule files and validation engine, giving you maximum flexibility for client implementations.
+
+### Quick Start
+
+Enable Connect RPC with environment variables:
+
+```bash
+# Enable Connect RPC (default: true)
+CONNECT_ENABLED=true
+
+# Set Connect port (default: 50052)
+CONNECT_PORT=50052
+
+# Enable CORS for browser clients (default: true)
+CONNECT_CORS_ENABLED=true
+CONNECT_CORS_ORIGINS=*
+
+# Start server
+bun run start
+```
+
+Server runs on:
+- gRPC (plaintext): `localhost:50050`
+- gRPC (TLS): `localhost:50051` (if enabled)
+- Connect RPC: `localhost:50052`
+- HTTP Admin API: `localhost:4319`
+
+### Configuration
+
+**Environment Variables:**
+
+```bash
+# Connect RPC
+CONNECT_ENABLED=true              # Enable Connect RPC server (default: true)
+CONNECT_PORT=50052                # Connect RPC HTTP port (default: 50052)
+
+# CORS (for browser clients)
+CONNECT_CORS_ENABLED=true         # Enable CORS (default: true)
+CONNECT_CORS_ORIGINS=*            # Allowed origins (default: *)
+
+# TLS (optional)
+CONNECT_TLS_ENABLED=false         # Enable TLS for Connect (default: false)
+CONNECT_TLS_CERT_PATH=certs/server.crt
+CONNECT_TLS_KEY_PATH=certs/server.key
+```
+
+**Check Status:**
+
+```bash
+curl http://localhost:4319/admin/status | jq '.connect_rpc'
+```
+
+Response includes:
+```json
+{
+  "enabled": true,
+  "port": 50052,
+  "cors_enabled": true,
+  "cors_origins": ["*"],
+  "tls_enabled": false,
+  "services": ["helloworld.Greeter"],
+  "metrics": {
+    "requests_total": 100,
+    "requests_by_protocol": {
+      "connect": 50,
+      "grpc_web": 30,
+      "grpc": 20
+    },
+    "errors_total": 5
+  }
+}
+```
+
+### Protocols Supported
+
+**Connect Protocol:**
+- Native browser support with fetch API
+- JSON and binary formats
+- HTTP/1.1 and HTTP/2 compatible
+- Endpoint: `POST http://localhost:50052/package.Service/Method`
+
+**gRPC-Web Protocol:**
+- Browser-compatible without proxy
+- Binary protocol (base64 in HTTP/1.1)
+- Works with existing gRPC-Web clients
+- Endpoint: `POST http://localhost:50052/package.Service/Method`
+
+**Native gRPC Protocol:**
+- Full gRPC compatibility over HTTP/2
+- Works with standard gRPC clients
+- Endpoint: `POST http://localhost:50052/package.Service/Method`
+
+### Testing Connect RPC
+
+**Browser Examples:**
+
+The repository includes ready-to-use browser examples:
+
+```bash
+# Start server
+bun run start
+
+# Open browser examples
+open examples/connect-client/browser.html
+open examples/grpc-web-connect/browser.html
+```
+
+**Node.js Examples:**
+
+```bash
+# Install dependencies
+cd examples/connect-client
+npm install
+
+# Run Connect client
+node node.mjs
+
+# Run gRPC-Web client
+cd ../grpc-web-connect
+npm install
+node node.mjs
+```
+
+**Integration Test:**
+
+Run the full integration test to verify all three protocols:
+
+```bash
+# Tests Connect, gRPC-Web, and native gRPC
+bun run test:connect:integration
+```
+
+**Manual Testing:**
+
+```bash
+# Using curl with Connect protocol (JSON)
+curl -X POST http://localhost:50052/helloworld.Greeter/SayHello \
+  -H "Content-Type: application/json" \
+  -d '{"name":"World"}'
+
+# Using grpcurl with native gRPC (still works)
+grpcurl -plaintext -d '{"name":"World"}' localhost:50050 helloworld.Greeter/SayHello
+```
+
+### Key Features
+
+- **No Proxy Required** - Direct browser-to-server communication
+- **Protocol Flexibility** - One endpoint supports three protocols
+- **Rule Compatibility** - Same rules work across all protocols
+- **Validation Support** - Full validation engine integration
+- **Streaming Support** - All four streaming patterns supported
+- **CORS Built-in** - Configurable CORS for browser clients
+- **TLS Support** - Optional TLS encryption
+- **Reflection** - Service discovery via reflection API
+
+### Migration from Envoy
+
+**Note:** Connect RPC replaces the need for Envoy proxy for gRPC-Web support. If you're currently using Envoy:
+
+1. **Immediate:** Connect RPC is available now - no breaking changes to existing gRPC setup
+2. **Recommended:** New projects should use Connect RPC instead of Envoy
+3. **Migration:** Existing Envoy setups can migrate at your convenience
+4. **Support:** Envoy configuration examples remain available for existing users
+
+For complete documentation including streaming examples, error handling, client setup, and migration guides, see [docs/connect-rpc-support.md](docs/connect-rpc-support.md).
+
 ## Rule Examples
 See `docs/rule-examples.md` for complete YAML samples, metadata matching patterns, and gRPC error simulations. The examples in that document back the quick-start walkthroughs referenced throughout this README.
 
@@ -641,7 +820,7 @@ Guides:
 - Test script: `bash scripts/test-validation-oneof.sh`
 
 ## Testing
-- Run tests with Bun:
+- Run unit and integration tests with Bun:
   ```bash
   bun test
   ```
@@ -650,6 +829,21 @@ Guides:
   bun test --watch
   ```
   Focus of unit tests: pure domain use cases like `src/domain/usecases/selectResponse.ts`.
+
+- Run E2E tests (requires server startup, skipped by default):
+  ```bash
+  E2E=true bun test tests/e2e/
+  ```
+
+- Run performance benchmarks (skipped by default):
+  ```bash
+  bun run benchmark
+  # or with environment variable
+  BENCHMARK=true bun test tests/performance.benchmark.test.ts
+  # or
+  bun run benchmark
+  ```
+  See [Performance Benchmarks](docs/performance-benchmarks.md) for detailed results and methodology.
 
 ## Server Streaming Support
 
@@ -1015,6 +1209,7 @@ For a guided workflow and CI integration pointers, see the scripts under `script
 
 - **[Quick Reference](docs/quick-reference.md)** - Command cheatsheet and common patterns
 - **[Global Installation Guide](docs/global-installation.md)** - Complete guide for npm global install
+- **[Connect RPC Support](docs/connect-rpc-support.md)** - Connect, gRPC-Web, and browser client guide
 - **[Admin API Reference](API.md)** - REST API endpoints documentation
 - **[Rule Examples](docs/rule-examples.md)** - Comprehensive rule patterns and examples
 - **[Validation Guide](docs/pgv-validation.md)** - Protovalidate and PGV validation setup

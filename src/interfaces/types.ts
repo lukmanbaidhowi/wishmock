@@ -11,9 +11,30 @@ export interface ProtoInfo {
   skipped: { file: string; status?: string; error?: string }[];
 }
 
+export interface ConnectRpcInfo {
+  enabled: boolean;
+  port?: number;
+  cors_enabled: boolean;
+  cors_origins?: string[];
+  tls_enabled: boolean;
+  error?: string | null;
+  services: string[];
+  reflection_enabled?: boolean;
+  metrics?: {
+    requests_total: number;
+    requests_by_protocol: {
+      connect: number;
+      grpc_web: number;
+      grpc: number;
+    };
+    errors_total: number;
+  };
+}
+
 export interface StatusResponse {
   grpc_port?: number | string; // Back-compat
   grpc_ports?: GrpcPorts;
+  connect_rpc?: ConnectRpcInfo;
   loaded_services: string[];
   rules: string[];
   protos?: ProtoInfo;

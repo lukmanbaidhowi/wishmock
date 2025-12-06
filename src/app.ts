@@ -10,6 +10,7 @@ import { loadRules as loadRulesFromDisk } from "./infrastructure/ruleLoader.js";
 import { createGrpcServer, type HandlerMeta } from "./infrastructure/grpcServer.js";
 import { createAdminApp } from "./interfaces/httpAdmin.js";
 import { runtime as validationRuntime } from "./infrastructure/validation/runtime.js";
+import { createConnectServer, type ConnectServer } from "./infrastructure/connectServer.js";
 
 // Ports
 const GRPC_PORT_PLAINTEXT = (process.env.GRPC_PORT_PLAINTEXT || process.env.GRPC_PORT || 50050) as any;
@@ -28,6 +29,21 @@ const RULE_DIR = path.resolve(RULES_ROOT, "grpc");
 const UPLOAD_DIR = path.resolve("uploads");
 const REFLECTION_DISABLE_REGEN = String(process.env.REFLECTION_DISABLE_REGEN || "").toLowerCase() === 'true' || process.env.REFLECTION_DISABLE_REGEN === '1';
 
+// Connect RPC configuration
+const CONNECT_ENABLED_ENV = String(process.env.CONNECT_ENABLED || "true").toLowerCase();
+const CONNECT_ENABLED = CONNECT_ENABLED_ENV === "true" || CONNECT_ENABLED_ENV === "1";
+const CONNECT_PORT = parseInt(process.env.CONNECT_PORT || "50052", 10);
+const CONNECT_CORS_ENABLED_ENV = String(process.env.CONNECT_CORS_ENABLED || "true").toLowerCase();
+const CONNECT_CORS_ENABLED = CONNECT_CORS_ENABLED_ENV === "true" || CONNECT_CORS_ENABLED_ENV === "1";
+const CONNECT_CORS_ORIGINS = process.env.CONNECT_CORS_ORIGINS?.split(",") || ["*"];
+const CONNECT_CORS_METHODS = process.env.CONNECT_CORS_METHODS?.split(",") || ["GET", "POST", "OPTIONS"];
+const CONNECT_CORS_HEADERS = process.env.CONNECT_CORS_HEADERS?.split(",") || ["*"];
+const CONNECT_TLS_ENABLED_ENV = String(process.env.CONNECT_TLS_ENABLED || "").toLowerCase();
+const CONNECT_TLS_ENABLED = CONNECT_TLS_ENABLED_ENV === "true" || CONNECT_TLS_ENABLED_ENV === "1";
+const CONNECT_TLS_CERT_PATH = process.env.CONNECT_TLS_CERT_PATH || TLS_CERT_PATH;
+const CONNECT_TLS_KEY_PATH = process.env.CONNECT_TLS_KEY_PATH || TLS_KEY_PATH;
+const CONNECT_TLS_CA_PATH = process.env.CONNECT_TLS_CA_PATH || TLS_CA_PATH;
+
 // ----- state -----
 let serverPlain: grpc.Server | null = null;
 let serverTls: grpc.Server | null = null;
@@ -44,6 +60,11 @@ let signalledReady = false;
 let lastReloadTimestamp: Date | null = null;
 let lastReloadMode: 'cluster' | 'bun-watch' | 'initial' = 'initial';
 let reloadDowntimeDetected = false;
+
+// Connect RPC state
+let connectServer: ConnectServer | null = null;
+let connectEnabled: boolean = false;
+let connectError: string | null = null;
 
 // --- util: logging ---
 const log = (...a: any[]) => console.log("[wishmock]", ...a);
@@ -106,6 +127,16 @@ async function startGrpc(rootNamespace: protobuf.Root) {
   await shutdown(serverTls);
   serverPlain = null;
   serverTls = null;
+  
+  // Shutdown existing Connect server if any
+  if (connectServer) {
+    try {
+      await connectServer.stop();
+    } catch (e: any) {
+      err("Failed to stop Connect server:", e?.message || e);
+    }
+    connectServer = null;
+  }
 
   // Build a server instance (handlers) once to capture services meta
   // Exclude validation_examples.proto from proto-loader due to map field limitations.
@@ -164,6 +195,52 @@ async function startGrpc(rootNamespace: protobuf.Root) {
       tlsError = e?.message || String(e);
       err("TLS server failed to start; continuing with plaintext only:", tlsError);
     }
+  }
+
+  // Start Connect RPC server if enabled
+  connectEnabled = false;
+  connectError = null;
+  if (CONNECT_ENABLED) {
+    try {
+      log("Starting Connect RPC server...");
+      
+      // Prepare TLS configuration if enabled
+      const tlsConfig = CONNECT_TLS_ENABLED && CONNECT_TLS_CERT_PATH && CONNECT_TLS_KEY_PATH
+        ? {
+            enabled: true,
+            keyPath: CONNECT_TLS_KEY_PATH,
+            certPath: CONNECT_TLS_CERT_PATH,
+            caPath: CONNECT_TLS_CA_PATH || undefined,
+          }
+        : undefined;
+      
+      // Create Connect server
+      connectServer = await createConnectServer({
+        port: CONNECT_PORT,
+        corsEnabled: CONNECT_CORS_ENABLED,
+        corsOrigins: CONNECT_CORS_ORIGINS,
+        corsMethods: CONNECT_CORS_METHODS,
+        corsHeaders: CONNECT_CORS_HEADERS,
+        protoRoot: rootNamespace,
+        rulesIndex,
+        logger: log,
+        errorLogger: err,
+        tls: tlsConfig,
+      });
+      
+      // Start the server
+      await connectServer.start();
+      
+      connectEnabled = true;
+      const serviceCount = connectServer.getServices().size;
+      log(`Connect RPC server started successfully with ${serviceCount} services`);
+    } catch (e: any) {
+      connectError = e?.message || String(e);
+      err("Connect RPC server failed to start:", connectError);
+      err("Continuing with native gRPC only");
+    }
+  } else {
+    log("Connect RPC server disabled (CONNECT_ENABLED=false)");
   }
 
   // Notify cluster master (if any) that this worker is ready (only once)
@@ -240,8 +317,19 @@ function reloadRules() {
   const graceful = async () => {
     const shutdown = async (srv: grpc.Server | null) => srv ? new Promise<void>((resolve) => srv.tryShutdown(() => resolve())) : Promise.resolve();
     try {
+      log('[lifecycle] Shutting down gRPC servers...');
       await shutdown(serverPlain);
       await shutdown(serverTls);
+      
+      // Shutdown Connect server
+      if (connectServer) {
+        log('[lifecycle] Shutting down Connect RPC server...');
+        try {
+          await connectServer.stop();
+        } catch (e: any) {
+          err('[lifecycle] Error stopping Connect server:', e?.message || e);
+        }
+      }
     } finally {
       process.exit(0);
     }
@@ -321,6 +409,17 @@ function reloadRules() {
         tls_enabled: tlsEnabled,
         mtls: tlsMtls || undefined,
         tls_error: tlsError,
+      },
+      connect_rpc: {
+        enabled: connectEnabled,
+        port: connectEnabled ? CONNECT_PORT : undefined,
+        cors_enabled: CONNECT_CORS_ENABLED,
+        cors_origins: CONNECT_CORS_ENABLED ? CONNECT_CORS_ORIGINS : undefined,
+        tls_enabled: CONNECT_TLS_ENABLED,
+        error: connectError,
+        services: connectServer ? Array.from(connectServer.getServices().keys()) : [],
+        reflection_enabled: connectServer ? connectServer.hasReflection() : false,
+        metrics: connectServer ? connectServer.getMetrics() : undefined,
       },
       loaded_services: servicesKeys,
       rules: [...rulesIndex.keys()],

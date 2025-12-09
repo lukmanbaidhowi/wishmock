@@ -62,7 +62,7 @@ describe("createGrpcServer", () => {
     return root;
   }
 
-  it("menggunakan definisi proto-loader ketika tersedia", async () => {
+  it("uses proto-loader definition when available", async () => {
     const { createGrpcServer } = await grpcServerModulePromise;
     await grpcModulePromise;
     await protoLoaderModulePromise;
@@ -103,7 +103,7 @@ describe("createGrpcServer", () => {
     expect([...servicesMap.keys()]).toEqual(["example.Greeter/SayHello"]);
   });
 
-  it("jatuh ke definisi fallback bila packageObject tidak memiliki service", async () => {
+  it("falls back to fallback definition when packageObject does not have service", async () => {
     const { createGrpcServer } = await grpcServerModulePromise;
     await grpcModulePromise;
     await protoLoaderModulePromise;

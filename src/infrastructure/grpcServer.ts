@@ -6,75 +6,26 @@ import * as protoLoader from "@grpc/proto-loader";
 import wrapServerWithReflection from "./reflection.js";
 import protobuf from "protobufjs";
 import type { RuleDoc } from "../domain/types.js";
-import { metadataToRecord, buildStreamRequest, respondUnary, handleStreamingResponses } from "./grpcHandlerUtils.js";
-import { runtime as validationRuntime } from "./validation/runtime.js"; // validation runtime for constraint checking
-import { makeInvalidArgError } from "../domain/validation/errors.js";
+import { 
+  normalizeGrpcUnaryRequest,
+  normalizeGrpcServerStreamingRequest,
+  sendGrpcResponse,
+  sendGrpcError,
+  extractGrpcMetadata,
+} from "./protocolAdapter.js";
+import {
+  handleUnaryRequest,
+  handleServerStreamingRequest,
+  handleClientStreamingRequest,
+  handleBidiStreamingRequest,
+} from "../domain/usecases/handleRequest.js";
+import type { NormalizedRequest } from "../domain/types/normalized.js";
+import { isNormalizedError } from "../domain/types/normalized.js";
+import { normalizeTypeName } from "./utils/protoUtils.js";
 
 type RulesIndex = Map<string, RuleDoc>;
 
-function getValidatorFor(type: protobuf.Type) {
-  const typeName = type.fullName || type.name;
-  return validationRuntime.getValidator(typeName);
-}
 
-function validateOrFail(type: protobuf.Type, message: unknown, fail: (err: any) => void): boolean {
-  const debug = String(process.env.DEBUG_VALIDATION || '') === '1';
-  if (!validationRuntime.active()) {
-    try { require('fs').appendFileSync('/tmp/validation.trace', `[inactive] ${new Date().toISOString()} type=${type.fullName || type.name}\n`); } catch {}
-    if (debug) console.log('[validation][debug] inactive runtime; skipping validation');
-    return true;
-  }
-  const validator = getValidatorFor(type);
-  try { require('fs').appendFileSync('/tmp/validation.trace', `[check] ${new Date().toISOString()} type=${type.fullName || type.name} hasValidator=${!!validator}\n`); } catch {}
-  if (debug) console.log('[validation][debug] type=', type.fullName || type.name, 'hasValidator=', !!validator);
-  if (!validator) return true;
-  try {
-    const result = validator(message);
-    try { require('fs').appendFileSync('/tmp/validation.trace', `[result] ${new Date().toISOString()} ok=${result.ok}\n`); } catch {}
-    if (!result.ok) {
-      // Emit validation failure events (one per violation) for metrics
-      try {
-        const typeName = (type.fullName || type.name) as string;
-        const violations = (result as any)?.violations || [];
-        if (Array.isArray(violations) && violations.length > 0) {
-          for (const v of violations) {
-            validationRuntime.emitValidationEvent({
-              typeName,
-              result: 'failure',
-              details: {
-                constraint_id: v?.rule,
-                grpc_status: 'InvalidArgument',
-                error_message: v?.description
-              }
-            });
-          }
-        } else {
-          // Fallback: emit a single failure event without specific constraint
-          validationRuntime.emitValidationEvent({
-            typeName,
-            result: 'failure',
-            details: { grpc_status: 'InvalidArgument' }
-          });
-        }
-      } catch {}
-      fail(makeInvalidArgError(result.violations));
-      return false;
-    }
-    // Emit validation success event
-    try {
-      const typeName = (type.fullName || type.name) as string;
-      validationRuntime.emitValidationEvent({
-        typeName,
-        result: 'success',
-        details: {}
-      });
-    } catch {}
-    return true;
-  } catch (ve) {
-    fail({ code: grpc.status.INTERNAL, message: (ve as any)?.message || 'validation error' } as any);
-    return false;
-  }
-}
 
 export interface HandlerMeta {
   pkg: string;
@@ -102,12 +53,6 @@ export function buildHandlersFromRoot(rootNamespace: protobuf.Root, rulesIndex: 
 
   const json = rootNamespace.toJSON({ keepComments: false }) as { nested?: Record<string, JsonNS> };
 
-  function normalizeTypeName(name: string, pkgPrefix: string): string {
-    const n = name.startsWith(".") ? name.slice(1) : name;
-    if (n.includes(".")) return n;
-    return pkgPrefix ? `${pkgPrefix}.${n}` : n;
-  }
-
   function walk(ns: JsonNS, packagePath: string) {
     if (ns.methods) {
       const serviceName = ns.name || "Service";
@@ -125,77 +70,207 @@ export function buildHandlersFromRoot(rootNamespace: protobuf.Root, rulesIndex: 
         let handler: HandlerMeta["handler"];
 
         if (!requestStream && !responseStream) {
-          handler = (call: grpc.ServerUnaryCall<any, any>, callback: grpc.sendUnaryData<any>) => {
-            try { require('fs').appendFileSync('/tmp/validation.trace', `[handler] unary ${new Date().toISOString()} ${fqmn}\n`); } catch {}
-            const reqObj = call.request as unknown;
-            const md = metadataToRecord(call.metadata);
-            const rule = rulesIndex.get(ruleKey);
-            if (!validateOrFail(reqType, reqObj, (e) => callback(e as any))) return;
-            respondUnary(rule, reqObj, md, resType, callback, err, call);
+          // Unary: use shared handler
+          handler = async (call: grpc.ServerUnaryCall<any, any>, callback: grpc.sendUnaryData<any>) => {
+            try {
+              // Normalize gRPC request to protocol-agnostic format
+              const normalizedRequest = normalizeGrpcUnaryRequest(
+                call,
+                reqType,
+                resType,
+                fqService,
+                methodName
+              );
+
+              // Call shared handler
+              const result = await handleUnaryRequest(normalizedRequest, rulesIndex, log);
+
+              // Check if result is an error
+              if (isNormalizedError(result)) {
+                sendGrpcError(call, result, false, false, callback);
+              } else {
+                sendGrpcResponse(call, result, false, false, callback);
+              }
+            } catch (error: any) {
+              err(`[grpc] ${fqmn} - handler error:`, error?.message || error);
+              callback({
+                code: grpc.status.INTERNAL,
+                message: error?.message || "Internal error",
+              } as any);
+            }
           };
         } else if (!requestStream && responseStream) {
-          handler = (call: grpc.ServerWritableStream<any, any>) => {
-            try { require('fs').appendFileSync('/tmp/validation.trace', `[handler] server-stream ${new Date().toISOString()} ${fqmn}\n`); } catch {}
-            const reqObj = call.request as unknown;
-            const md = metadataToRecord(call.metadata);
-            const rule = rulesIndex.get(ruleKey);
-            if (!validateOrFail(reqType, reqObj, (e) => call.emit('error', e))) return;
-            handleStreamingResponses(call, rule, reqObj, md, resType, err);
+          // Server streaming: use shared handler
+          handler = async (call: grpc.ServerWritableStream<any, any>) => {
+            try {
+              // Normalize gRPC request to protocol-agnostic format
+              const normalizedRequest = normalizeGrpcServerStreamingRequest(
+                call,
+                reqType,
+                resType,
+                fqService,
+                methodName
+              );
+
+              // Call shared handler (async generator)
+              for await (const result of handleServerStreamingRequest(normalizedRequest, rulesIndex, log)) {
+                // Check if call was cancelled
+                if ((call as any).cancelled) {
+                  break;
+                }
+
+                // Check if result is an error
+                if (isNormalizedError(result)) {
+                  sendGrpcError(call, result, false, true);
+                  break; // Stop streaming on error
+                } else {
+                  sendGrpcResponse(call, result, false, true);
+                }
+              }
+
+              // End the stream
+              call.end();
+            } catch (error: any) {
+              err(`[grpc] ${fqmn} - handler error:`, error?.message || error);
+              const grpcError: grpc.ServiceError = {
+                name: 'INTERNAL',
+                message: error?.message || "Internal error",
+                code: grpc.status.INTERNAL,
+                details: '',
+                metadata: new grpc.Metadata(),
+              };
+              call.destroy(grpcError);
+            }
           };
         } else if (requestStream && !responseStream) {
+          // Client streaming: use shared handler
           handler = (call: grpc.ServerReadableStream<any, any>, callback: grpc.sendUnaryData<any>) => {
-            try { require('fs').appendFileSync('/tmp/validation.trace', `[handler] client-stream ${new Date().toISOString()} ${fqmn}\n`); } catch {}
-            const md = metadataToRecord(call.metadata);
-            const messages: unknown[] = [];
-            call.on("data", (chunk) => {
-              // Validate each incoming message in per_message mode
-              if (validationRuntime.active() && validationRuntime.mode() === 'per_message') {
-                if (!validateOrFail(reqType, chunk, (e) => call.emit('error', e))) return;
+            const metadata = extractGrpcMetadata(call.metadata);
+            
+            // Create async generator from call stream using event listeners
+            async function* requestGenerator(): AsyncGenerator<NormalizedRequest> {
+              const chunks: any[] = [];
+              const endPromise = new Promise<void>((resolve, reject) => {
+                call.on("data", (chunk) => {
+                  chunks.push(chunk);
+                });
+                call.on("end", () => resolve());
+                call.on("error", (e) => {
+                  if ((e as any)?.code !== grpc.status.CANCELLED) {
+                    reject(e);
+                  }
+                });
+              });
+
+              await endPromise;
+
+              // Yield all collected chunks
+              for (const chunk of chunks) {
+                const normalizedRequest: NormalizedRequest = {
+                  service: fqService,
+                  method: methodName,
+                  metadata,
+                  data: chunk,
+                  requestType: reqType,
+                  responseType: resType,
+                  requestStream: true,
+                  responseStream: false,
+                };
+                yield normalizedRequest;
               }
-              messages.push(chunk);
-            });
-            call.on("error", (e) => {
-              if ((e as any)?.code !== grpc.status.CANCELLED) err("client streaming error", e);
-            });
-            call.on("end", () => {
-              if ((call as any).cancelled) return;
-              // Aggregate mode: validate after stream end against full batch (simple per-message pass-through for now)
-              if (validationRuntime.active() && validationRuntime.mode() === 'aggregate') {
-                for (const m of messages) {
-                  if (!validateOrFail(reqType, m, (e) => callback(e as any))) return;
+            }
+
+            // Call shared handler asynchronously
+            (async () => {
+              try {
+                const result = await handleClientStreamingRequest(requestGenerator(), rulesIndex, log);
+
+                // Check if result is an error
+                if (isNormalizedError(result)) {
+                  sendGrpcError(call, result, true, false, callback);
+                } else {
+                  sendGrpcResponse(call, result, true, false, callback);
                 }
+              } catch (error: any) {
+                err(`[grpc] ${fqmn} - handler error:`, error?.message || error);
+                callback({
+                  code: grpc.status.INTERNAL,
+                  message: error?.message || "Internal error",
+                } as any);
               }
-              const reqObj = buildStreamRequest(messages);
-              const rule = rulesIndex.get(ruleKey);
-              respondUnary(rule, reqObj, md, resType, callback, err);
-            });
+            })();
           };
         } else {
+          // Bidirectional streaming: use shared handler
           handler = (call: grpc.ServerDuplexStream<any, any>) => {
-            try { require('fs').appendFileSync('/tmp/validation.trace', `[handler] bidi ${new Date().toISOString()} ${fqmn}\n`); } catch {}
-            const md = metadataToRecord(call.metadata);
-            const messages: unknown[] = [];
-            call.on("data", (chunk) => {
-              // Validate each incoming message in per_message mode
-              if (validationRuntime.active() && validationRuntime.mode() === 'per_message') {
-                if (!validateOrFail(reqType, chunk, (e) => call.emit('error', e))) return;
+            const metadata = extractGrpcMetadata(call.metadata);
+            
+            // Create async generator from call stream using event listeners
+            async function* requestGenerator(): AsyncGenerator<NormalizedRequest> {
+              const chunks: any[] = [];
+              const endPromise = new Promise<void>((resolve, reject) => {
+                call.on("data", (chunk) => {
+                  chunks.push(chunk);
+                });
+                call.on("end", () => resolve());
+                call.on("error", (e) => {
+                  if ((e as any)?.code !== grpc.status.CANCELLED) {
+                    reject(e);
+                  }
+                });
+              });
+
+              await endPromise;
+
+              // Yield all collected chunks
+              for (const chunk of chunks) {
+                const normalizedRequest: NormalizedRequest = {
+                  service: fqService,
+                  method: methodName,
+                  metadata,
+                  data: chunk,
+                  requestType: reqType,
+                  responseType: resType,
+                  requestStream: true,
+                  responseStream: true,
+                };
+                yield normalizedRequest;
               }
-              messages.push(chunk);
-            });
-            call.on("error", (e) => {
-              if ((e as any)?.code !== grpc.status.CANCELLED) err("bidi streaming error", e);
-            });
-            call.on("end", () => {
-              if ((call as any).cancelled) return;
-              if (validationRuntime.active() && validationRuntime.mode() === 'aggregate') {
-                for (const m of messages) {
-                  if (!validateOrFail(reqType, m, (e) => call.emit('error', e))) return;
+            }
+
+            // Call shared handler asynchronously
+            (async () => {
+              try {
+                // Call shared handler (async generator)
+                for await (const result of handleBidiStreamingRequest(requestGenerator(), rulesIndex, log)) {
+                  // Check if call was cancelled
+                  if ((call as any).cancelled) {
+                    break;
+                  }
+
+                  // Check if result is an error
+                  if (isNormalizedError(result)) {
+                    sendGrpcError(call, result, true, true);
+                    break; // Stop streaming on error
+                  } else {
+                    sendGrpcResponse(call, result, true, true);
+                  }
                 }
+
+                // End the stream
+                call.end();
+              } catch (error: any) {
+                err(`[grpc] ${fqmn} - handler error:`, error?.message || error);
+                const grpcError: grpc.ServiceError = {
+                  name: 'INTERNAL',
+                  message: error?.message || "Internal error",
+                  code: grpc.status.INTERNAL,
+                  details: '',
+                  metadata: new grpc.Metadata(),
+                };
+                call.destroy(grpcError);
               }
-              const reqObj = buildStreamRequest(messages);
-              const rule = rulesIndex.get(ruleKey);
-              handleStreamingResponses(call, rule, reqObj, md, resType, err);
-            });
+            })();
           };
         }
 

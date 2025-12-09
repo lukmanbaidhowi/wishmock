@@ -34,6 +34,29 @@ async function refreshStatus() {
     if (elTlsPort) (elTlsPort as HTMLElement).textContent = tlsEnabled ? String(tlsPort) : '-';
     if (elTlsErrWrap) elTlsErrWrap.style.display = tlsErr ? 'block' : 'none';
     if (elTlsErr && tlsErr) (elTlsErr as HTMLElement).textContent = tlsErr;
+
+    // Connect RPC
+    const connectRpc = s.connect_rpc || {};
+    const connectEnabled = !!connectRpc.enabled;
+    const connectPort = connectRpc.port ?? '-';
+    const connectCors = connectRpc.cors_enabled ? 'yes' : 'no';
+    const connectTls = connectRpc.tls_enabled ? 'yes' : 'no';
+    const connectErr = connectRpc.error || null;
+
+    const elConnectEnabled = document.querySelector('#connectEnabled');
+    const elConnectPort = document.querySelector('#connectPort');
+    const elConnectCors = document.querySelector('#connectCors');
+    const elConnectTls = document.querySelector('#connectTls');
+    const elConnectErrWrap = document.querySelector('#connectErrorWrap') as HTMLElement | null;
+    const elConnectErr = document.querySelector('#connectError');
+
+    if (elConnectEnabled) (elConnectEnabled as HTMLElement).textContent = connectEnabled ? 'yes' : 'no';
+    if (elConnectPort) (elConnectPort as HTMLElement).textContent = connectEnabled ? String(connectPort) : '-';
+    if (elConnectCors) (elConnectCors as HTMLElement).textContent = connectEnabled ? connectCors : '-';
+    if (elConnectTls) (elConnectTls as HTMLElement).textContent = connectEnabled ? connectTls : '-';
+    if (elConnectErrWrap) elConnectErrWrap.style.display = connectErr ? 'block' : 'none';
+    if (elConnectErr && connectErr) (elConnectErr as HTMLElement).textContent = connectErr;
+
     // Loaded Services list has been removed from Status to avoid duplication
   const rules = $("#rules") as HTMLElement | null;
     if (rules) rules.innerHTML = "";

@@ -1,0 +1,15 @@
+---
+# Rule for BufMessageOneofCheck - oneof validation test
+# This method tests oneof required constraints
+
+# Default response for valid requests
+- when:
+    request:
+      $or:
+        - d:
+            $exists: true
+        - e:
+            $exists: true
+  response:
+    message: "Oneof validation passed"
+  priority: 1

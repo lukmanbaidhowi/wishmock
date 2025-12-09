@@ -5,8 +5,9 @@ services:
     ports:
       - "50050:50050"   # gRPC plaintext
       - "50051:50051"   # gRPC TLS
+      - "50052:50052"   # Connect RPC (HTTP/1.1 and HTTP/2)
       - "3000:3000"     # Admin HTTP API
-      - "9090:9090"     # MCP SSE (optional)
+      - "9797:9797"     # MCP SSE (optional)
     volumes:
       - ./protos:/app/protos
       - ./rules:/app/rules
@@ -18,9 +19,12 @@ services:
       - GRPC_PORT_PLAINTEXT=50050
       - GRPC_PORT_TLS=50051
       - HTTP_PORT=3000
+      - CONNECT_ENABLED=true
+      - CONNECT_PORT=50052
+      - CONNECT_TLS_ENABLED=false
       - ENABLE_MCP=true
       - ENABLE_MCP_SSE=true
-      - MCP_HTTP_PORT=9090
+      - MCP_HTTP_PORT=9797
       - MCP_HTTP_HOST=0.0.0.0
       - GRPC_TLS_ENABLED=true
       - GRPC_TLS_CERT_PATH=/app/certs/server.crt

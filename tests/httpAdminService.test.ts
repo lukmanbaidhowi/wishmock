@@ -54,6 +54,145 @@ describe("Admin Service Routes - Functional Approach", () => {
       expect(mockRes.status).toHaveBeenCalledWith(HTTP_STATUS.OK);
       expect(mockRes._jsonMock).toHaveBeenCalledWith(mockStatus);
     });
+
+    it("should return status with Connect RPC information", () => {
+      const mockStatus: StatusResponse = {
+        grpc_ports: {
+          plaintext: 50050,
+          tls: 50051,
+          tls_enabled: true
+        },
+        connect_rpc: {
+          enabled: true,
+          port: 8080,
+          cors_enabled: true,
+          cors_origins: ["*"],
+          tls_enabled: false,
+          error: null,
+          services: ["helloworld.Greeter", "calendar.CalendarService"],
+          metrics: {
+            requests_total: 42,
+            requests_by_protocol: {
+              connect: 20,
+              grpc_web: 15,
+              grpc: 7,
+            },
+            errors_total: 3,
+          },
+        },
+        loaded_services: ["helloworld.Greeter", "calendar.CalendarService"],
+        rules: ["helloworld.greeter.sayhello.yaml"]
+      };
+      
+      mockParams.getStatus = () => mockStatus;
+      
+      // Simulate route handler
+      const statusHandler = () => {
+        sendSuccess(mockRes, mockParams.getStatus());
+      };
+      
+      statusHandler();
+      
+      // Verify response structure
+      expect(mockRes.status).toHaveBeenCalledWith(HTTP_STATUS.OK);
+      expect(mockRes._jsonMock).toHaveBeenCalledWith(mockStatus);
+      
+      // Verify Connect RPC fields are present
+      const status = mockParams.getStatus();
+      expect(status.connect_rpc).toBeDefined();
+      expect(status.connect_rpc?.enabled).toBe(true);
+      expect(status.connect_rpc?.port).toBe(8080);
+      expect(status.connect_rpc?.cors_enabled).toBe(true);
+      expect(status.connect_rpc?.cors_origins).toEqual(["*"]);
+      expect(status.connect_rpc?.services).toHaveLength(2);
+      expect(status.connect_rpc?.metrics).toBeDefined();
+      expect(status.connect_rpc?.metrics?.requests_total).toBe(42);
+      expect(status.connect_rpc?.metrics?.requests_by_protocol.connect).toBe(20);
+      expect(status.connect_rpc?.metrics?.requests_by_protocol.grpc_web).toBe(15);
+      expect(status.connect_rpc?.metrics?.requests_by_protocol.grpc).toBe(7);
+      expect(status.connect_rpc?.metrics?.errors_total).toBe(3);
+    });
+
+    it("should return status when Connect RPC is disabled", () => {
+      const mockStatus: StatusResponse = {
+        grpc_ports: {
+          plaintext: 50050,
+          tls_enabled: false
+        },
+        connect_rpc: {
+          enabled: false,
+          port: undefined,
+          cors_enabled: false,
+          cors_origins: undefined,
+          tls_enabled: false,
+          error: null,
+          services: [],
+          metrics: undefined,
+        },
+        loaded_services: ["helloworld.Greeter"],
+        rules: ["helloworld.greeter.sayhello.yaml"]
+      };
+      
+      mockParams.getStatus = () => mockStatus;
+      
+      // Simulate route handler
+      const statusHandler = () => {
+        sendSuccess(mockRes, mockParams.getStatus());
+      };
+      
+      statusHandler();
+      
+      // Verify response structure
+      expect(mockRes.status).toHaveBeenCalledWith(HTTP_STATUS.OK);
+      expect(mockRes._jsonMock).toHaveBeenCalledWith(mockStatus);
+      
+      // Verify Connect RPC is disabled
+      const status = mockParams.getStatus();
+      expect(status.connect_rpc).toBeDefined();
+      expect(status.connect_rpc?.enabled).toBe(false);
+      expect(status.connect_rpc?.port).toBeUndefined();
+      expect(status.connect_rpc?.metrics).toBeUndefined();
+    });
+
+    it("should return status when Connect RPC fails to start", () => {
+      const mockStatus: StatusResponse = {
+        grpc_ports: {
+          plaintext: 50050,
+          tls_enabled: false
+        },
+        connect_rpc: {
+          enabled: false,
+          port: undefined,
+          cors_enabled: true,
+          cors_origins: ["*"],
+          tls_enabled: false,
+          error: "Failed to bind to port 8080: address already in use",
+          services: [],
+          metrics: undefined,
+        },
+        loaded_services: ["helloworld.Greeter"],
+        rules: ["helloworld.greeter.sayhello.yaml"]
+      };
+      
+      mockParams.getStatus = () => mockStatus;
+      
+      // Simulate route handler
+      const statusHandler = () => {
+        sendSuccess(mockRes, mockParams.getStatus());
+      };
+      
+      statusHandler();
+      
+      // Verify response structure
+      expect(mockRes.status).toHaveBeenCalledWith(HTTP_STATUS.OK);
+      expect(mockRes._jsonMock).toHaveBeenCalledWith(mockStatus);
+      
+      // Verify Connect RPC error is reported
+      const status = mockParams.getStatus();
+      expect(status.connect_rpc).toBeDefined();
+      expect(status.connect_rpc?.enabled).toBe(false);
+      expect(status.connect_rpc?.error).toBe("Failed to bind to port 8080: address already in use");
+    });
   });
 
   describe("Services Endpoint - Happy Path", () => {

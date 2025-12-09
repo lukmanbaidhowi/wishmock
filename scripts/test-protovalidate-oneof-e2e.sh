@@ -17,9 +17,9 @@ if [[ -z "$RUNNER" ]]; then
   if command -v bun >/dev/null 2>&1; then RUNNER="bun"; else RUNNER="node"; fi
 fi
 if [[ "$RUNNER" == "bun" ]]; then
-  START_CMD=(bun run start)
+  START_CMD=(env VALIDATION_ENABLED=true VALIDATION_SOURCE=protovalidate VALIDATION_MODE=per_message HTTP_PORT="${HTTP_PORT}" GRPC_PORT_PLAINTEXT="${GRPC_PORT_PLAINTEXT}" bun run start)
 else
-  START_CMD=(npm run -s start:node)
+  START_CMD=(env VALIDATION_ENABLED=true VALIDATION_SOURCE=protovalidate VALIDATION_MODE=per_message HTTP_PORT="${HTTP_PORT}" GRPC_PORT_PLAINTEXT="${GRPC_PORT_PLAINTEXT}" npm run -s start:node)
 fi
 
 echo "Starting server with $RUNNER..."

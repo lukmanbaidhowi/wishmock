@@ -10,9 +10,18 @@ export function loadRules(ruleDir: string): Map<string, RuleDoc> {
   for (const f of files) {
     const p = path.join(ruleDir, f);
     const raw = fs.readFileSync(p, "utf8");
-    const doc = f.endsWith(".json") ? JSON.parse(raw) : (yaml.load(raw) as RuleDoc);
+    let doc: any = f.endsWith(".json") ? JSON.parse(raw) : yaml.load(raw);
+    
+    // Normalize: if doc is an array, wrap it as { responses: doc }
+    // This supports both formats:
+    // 1. Array format: [{ when: ..., body: ... }, ...]
+    // 2. Object format: { match: ..., responses: [...] }
+    if (Array.isArray(doc)) {
+      doc = { responses: doc };
+    }
+    
     const base = path.basename(f).replace(/\.(yaml|yml|json)$/i, "");
-    index.set(base.toLowerCase(), doc);
+    index.set(base.toLowerCase(), doc as RuleDoc);
   }
   return index;
 }

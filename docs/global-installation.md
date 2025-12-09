@@ -46,10 +46,11 @@ wishmock
 ```
 
 The server will start with:
-- gRPC (plaintext): `localhost:50050`
-- gRPC (TLS): `localhost:50051` (if certs configured)
-- HTTP Admin API: `localhost:4319`
-- Web UI: `http://localhost:4319/app/`
+- **Connect RPC**: `http://localhost:50052` (HTTP/1.1 and HTTP/2, enabled by default)
+- **gRPC (plaintext)**: `localhost:50050`
+- **gRPC (TLS)**: `localhost:50051` (if certs configured)
+- **HTTP Admin API**: `localhost:4319`
+- **Web UI**: `http://localhost:4319/app/`
 
 Directories auto-created in current folder:
 - `protos/` - Your .proto files
@@ -112,14 +113,25 @@ Create `rules/grpc/helloworld.greeter.sayhello.yaml`:
 
 ### 5. Test Your Service
 
+**Using Connect RPC (browser-friendly)**:
 ```bash
-# Using grpcurl
+curl -X POST http://localhost:50052/helloworld.Greeter/SayHello \
+  -H "Content-Type: application/json" \
+  -d '{"name":"World"}'
+```
+
+**Using grpcurl (native gRPC)**:
+```bash
 grpcurl -plaintext -d '{"name":"World"}' localhost:50050 helloworld.Greeter/SayHello
+```
 
-# List services
+**List services**:
+```bash
 grpcurl -plaintext localhost:50050 list
+```
 
-# Check status
+**Check status**:
+```bash
 curl http://localhost:4319/admin/status
 ```
 
@@ -131,9 +143,17 @@ Create `.env` file in your working directory:
 
 ```bash
 # Ports
-HTTP_PORT=3000
-GRPC_PORT_PLAINTEXT=50050
-GRPC_PORT_TLS=50051
+HTTP_PORT=4319                    # Admin API and Web UI
+GRPC_PORT_PLAINTEXT=50050         # Native gRPC (plaintext)
+GRPC_PORT_TLS=50051               # Native gRPC (TLS)
+CONNECT_PORT=50052                # Connect RPC (HTTP/1.1 and HTTP/2)
+
+# Connect RPC (enabled by default)
+CONNECT_ENABLED=true              # Enable Connect RPC (default: true)
+CONNECT_PORT=50052                # Connect RPC port (default: 50052)
+CONNECT_CORS_ENABLED=true         # Enable CORS for browsers (default: true)
+CONNECT_CORS_ORIGINS=*            # Allowed origins (default: *)
+CONNECT_TLS_ENABLED=false         # Enable TLS for Connect RPC (default: false)
 
 # TLS (optional)
 GRPC_TLS_ENABLED=false
@@ -253,6 +273,46 @@ my-mock-server/
     └── ca.crt
 ```
 
+## Connect RPC Support
+
+Wishmock includes **Connect RPC** support, enabling native browser clients without proxies like Envoy. A single HTTP endpoint handles three protocols:
+
+- **Connect Protocol** - Modern RPC with JSON and binary formats
+- **gRPC-Web** - Browser-compatible gRPC
+- **gRPC** - Full compatibility with standard gRPC clients
+
+### Quick Test
+
+**Browser-friendly JSON request**:
+```bash
+curl -X POST http://localhost:50052/helloworld.Greeter/SayHello \
+  -H "Content-Type: application/json" \
+  -d '{"name":"World"}'
+```
+
+**Check Connect RPC status**:
+```bash
+curl http://localhost:4319/admin/status | jq '.connect_rpc'
+```
+
+### Browser Client Example
+
+```javascript
+import { createPromiseClient } from "@connectrpc/connect";
+import { createConnectTransport } from "@connectrpc/connect-web";
+import { Greeter } from "./gen/helloworld_connect";
+
+const transport = createConnectTransport({
+  baseUrl: "http://localhost:50052",
+});
+
+const client = createPromiseClient(Greeter, transport);
+const response = await client.sayHello({ name: "World" });
+console.log(response.message);
+```
+
+For complete Connect RPC documentation, see [docs/connect-rpc-support.md](./connect-rpc-support.md).
+
 ## Common Use Cases
 
 ### 1. Development Mock Server
@@ -262,13 +322,26 @@ my-mock-server/
 VALIDATION_ENABLED=true wishmock
 ```
 
-### 2. Testing with Custom Port
+### 2. Browser Development (Connect RPC)
 
 ```bash
-HTTP_PORT=8080 GRPC_PORT_PLAINTEXT=9090 wishmock
+# Enable CORS for local development
+CONNECT_ENABLED=true \
+CONNECT_CORS_ENABLED=true \
+CONNECT_CORS_ORIGINS=http://localhost:3000 \
+wishmock
 ```
 
-### 3. Production-like with TLS
+### 3. Testing with Custom Ports
+
+```bash
+HTTP_PORT=8080 \
+GRPC_PORT_PLAINTEXT=9090 \
+CONNECT_PORT=8081 \
+wishmock
+```
+
+### 4. Production-like with TLS
 
 ```bash
 GRPC_TLS_ENABLED=true \
@@ -277,7 +350,7 @@ GRPC_TLS_KEY_PATH=./certs/server.key \
 wishmock
 ```
 
-### 4. CI/CD Integration
+### 5. CI/CD Integration
 
 ```bash
 # Start in background
@@ -287,11 +360,28 @@ WISHMOCK_PID=$!
 # Wait for ready
 sleep 3
 
-# Run tests
+# Run tests (Connect RPC)
+curl -f http://localhost:50052/helloworld.Greeter/SayHello \
+  -H "Content-Type: application/json" \
+  -d '{"name":"Test"}'
+
+# Run tests (native gRPC)
 grpcurl -plaintext localhost:50050 list
 
 # Cleanup
 kill $WISHMOCK_PID
+```
+
+### 6. Docker with Connect RPC
+
+```bash
+# Run with Connect RPC exposed
+docker run -p 50050:50050 -p 50052:50052 -p 4319:4319 wishmock
+
+# Test Connect RPC
+curl -X POST http://localhost:50052/helloworld.Greeter/SayHello \
+  -H "Content-Type: application/json" \
+  -d '{"name":"Docker"}'
 ```
 
 ## Troubleshooting
@@ -376,6 +466,7 @@ Rules can match on gRPC metadata:
 
 - Full Documentation: [README.md](../README.md)
 - Admin API Reference: [API.md](../API.md)
+- Connect RPC Guide: [connect-rpc-support.md](./connect-rpc-support.md)
 - Rule Examples: [rule-examples.md](./rule-examples.md)
 - Validation Guide: [pgv-validation.md](./pgv-validation.md)
 - GitHub: https://github.com/lukmanbaidhowi/wishmock

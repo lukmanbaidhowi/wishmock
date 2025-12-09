@@ -1,5 +1,12 @@
 import protobuf from "protobufjs";
 import type { ValidationIR } from "../../domain/validation/types.js";
+import { stripLeadingDot } from "../utils/protoUtils.js";
+
+/**
+ * Re-export stripLeadingDot as normalizeTypeName for backward compatibility
+ * @deprecated Use stripLeadingDot from utils/protoUtils.js instead
+ */
+export const normalizeTypeName = stripLeadingDot;
 
 export interface DescriptorInfo {
   root: protobuf.Root;
@@ -31,15 +38,11 @@ export function buildDescriptorInfo(root: protobuf.Root): DescriptorInfo {
   return { root, messages, enums };
 }
 
-export function normalizeTypeName(typeName: string): string {
-  return typeName.startsWith(".") ? typeName.slice(1) : typeName;
-}
-
 export function getMessageDescriptor(
   descriptorInfo: DescriptorInfo,
   typeName: string
 ): protobuf.Type | undefined {
-  const normalized = normalizeTypeName(typeName);
+  const normalized = stripLeadingDot(typeName);
   return descriptorInfo.messages.get(normalized);
 }
 

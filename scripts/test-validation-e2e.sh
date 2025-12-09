@@ -25,20 +25,20 @@ if [[ -z "$RUNNER" ]]; then
   if have bun; then RUNNER="bun"; else RUNNER="node"; fi
 fi
 
-if [[ "$RUNNER" == "bun" ]]; then
-  START_CMD=(bun run start)
-elif [[ "$RUNNER" == "node" ]]; then
-  START_CMD=(npm run -s start:node)
-else
-  echo "ERROR: Unknown RUNNER=$RUNNER (expected bun|node)" >&2
-  exit 2
-fi
-
 export HTTP_PORT
 export GRPC_PORT_PLAINTEXT="$GRPC_PORT"
 export VALIDATION_ENABLED="true"
 export VALIDATION_SOURCE="auto"
 export VALIDATION_MODE="per_message"
+
+if [[ "$RUNNER" == "bun" ]]; then
+  START_CMD=(env HTTP_PORT="${HTTP_PORT}" GRPC_PORT_PLAINTEXT="${GRPC_PORT}" VALIDATION_ENABLED=true VALIDATION_SOURCE=auto VALIDATION_MODE=per_message bun run start)
+elif [[ "$RUNNER" == "node" ]]; then
+  START_CMD=(env HTTP_PORT="${HTTP_PORT}" GRPC_PORT_PLAINTEXT="${GRPC_PORT}" VALIDATION_ENABLED=true VALIDATION_SOURCE=auto VALIDATION_MODE=per_message npm run -s start:node)
+else
+  echo "ERROR: Unknown RUNNER=$RUNNER (expected bun|node)" >&2
+  exit 2
+fi
 
 LOG_FILE="/tmp/validation.test.out"
 RESULTS_FILE="/tmp/validation.test.results"

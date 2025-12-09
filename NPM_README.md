@@ -3,7 +3,7 @@
 [![npm version](https://img.shields.io/npm/v/wishmock.svg)](https://www.npmjs.com/package/wishmock)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-A powerful gRPC mock server with hot reload, rule-based responses, and built-in validation.
+A powerful gRPC and Connect RPC mock server with hot reload, rule-based responses, built-in validation, and native gRPC-Web support without requiring an additional proxy layer.
 
 ## Quick Start
 
@@ -19,6 +19,7 @@ wishmock
 ```
 
 Server runs on:
+- Connect RPC: `http://localhost:50052` (HTTP/1.1 and HTTP/2, enabled by default)
 - gRPC: `localhost:50050`
 - Admin API: `http://localhost:4319`
 - Web UI: `http://localhost:4319/app/`
@@ -45,6 +46,7 @@ grpcurl -plaintext -d '{"name":"World"}' localhost:50050 hello.Greeter/SayHello
 ✅ **Rule Engine** - YAML/JSON rules with templating  
 ✅ **Validation** - Protovalidate & PGV support  
 ✅ **Streaming** - All gRPC streaming modes  
+✅ **Connect RPC** - Native browser support (Connect, gRPC-Web, gRPC) without additional proxy layer  
 ✅ **TLS/mTLS** - Production-ready security  
 ✅ **Admin API** - REST endpoints for automation  
 ✅ **Web UI** - Browser-based management  
@@ -82,6 +84,8 @@ wishmock-mcp          # Start MCP server
 ```bash
 HTTP_PORT=3000                # Admin API port
 GRPC_PORT_PLAINTEXT=50050     # gRPC port
+CONNECT_ENABLED=true          # Enable Connect RPC (default: true)
+CONNECT_PORT=50052            # Connect RPC port (default: 50052)
 VALIDATION_ENABLED=true       # Enable validation
 GRPC_TLS_ENABLED=true         # Enable TLS
 ```

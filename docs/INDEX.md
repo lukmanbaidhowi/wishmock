@@ -62,6 +62,12 @@ Complete documentation for Wishmock gRPC mock server.
 
 ### Advanced Topics
 
+- **[Connect RPC Support](connect-rpc-support.md)** 🌐
+  - Browser-native gRPC without proxies
+  - Three protocols in one endpoint
+  - CORS and TLS configuration
+  - Streaming and validation
+
 - **[Reflection & Descriptors](reflection-descriptor-generation.md)** 🔧
   - Server reflection setup
   - Descriptor generation
@@ -87,6 +93,9 @@ Complete documentation for Wishmock gRPC mock server.
 **Use the Admin API**
 → [Admin API Reference](../API.md)
 
+**Use Connect RPC for browsers**
+→ [Connect RPC Support](connect-rpc-support.md)
+
 **Understand reflection**
 → [Reflection & Descriptors](reflection-descriptor-generation.md)
 
@@ -106,6 +115,7 @@ docs/
 ├── INDEX.md                              # This file
 ├── quick-reference.md                    # Quick command reference
 ├── global-installation.md                # npm global install guide
+├── connect-rpc-support.md                # Connect RPC guide
 ├── rule-examples.md                      # Rule patterns and examples
 ├── protovalidate-validation.md           # Buf Protovalidate guide
 ├── pgv-validation.md                     # PGV validation guide

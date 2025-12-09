@@ -12,9 +12,9 @@ if [[ -z "$RUNNER" ]]; then
   if command -v bun >/dev/null 2>&1; then RUNNER="bun"; else RUNNER="node"; fi
 fi
 if [[ "$RUNNER" == "bun" ]]; then
-  START_CMD=(env VALIDATION_ENABLED=true VALIDATION_SOURCE=protovalidate bun run start)
+  START_CMD=(env VALIDATION_ENABLED=true VALIDATION_SOURCE=protovalidate HTTP_PORT=3000 GRPC_PORT_PLAINTEXT="${PORT}" bun run start)
 else
-  START_CMD=(env VALIDATION_ENABLED=true VALIDATION_SOURCE=protovalidate npm run -s start:node)
+  START_CMD=(env VALIDATION_ENABLED=true VALIDATION_SOURCE=protovalidate HTTP_PORT=3000 GRPC_PORT_PLAINTEXT="${PORT}" npm run -s start:node)
 fi
 "${START_CMD[@]}" >/tmp/mock-grpc-bytes.log 2>&1 &
 PID=$!

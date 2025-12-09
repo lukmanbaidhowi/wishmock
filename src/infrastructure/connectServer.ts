@@ -577,6 +577,9 @@ export async function createConnectServer(
 
       // Check if result is an error
       if ("code" in result && result.code !== "OK") {
+        // Increment error counter for non-OK responses
+        metrics.errors_total++;
+        
         // Send error response
         const statusCode = mapErrorCodeToHttpStatus(result.code);
         res.writeHead(statusCode, { "Content-Type": "application/json" });
@@ -638,6 +641,9 @@ export async function createConnectServer(
       for await (const result of generator) {
         // Check if result is an error
         if ("code" in result && result.code !== "OK") {
+          // Increment error counter for non-OK responses
+          metrics.errors_total++;
+          
           // Send error and end stream
           res.write(JSON.stringify({
             error: {

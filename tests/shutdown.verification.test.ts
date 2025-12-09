@@ -6,7 +6,7 @@ import { loadProtos } from "../src/infrastructure/protoLoader.js";
 import path from "path";
 
 /**
- * Verification tests for coordinated shutdown functionality (Task 5.3)
+ * Verification tests for coordinated shutdown functionality
  * 
  * These tests verify that:
  * - Both gRPC and Connect servers can be stopped gracefully
@@ -14,7 +14,7 @@ import path from "path";
  * - Resources are properly cleaned up
  * - Clear status messages are logged
  */
-describe("Coordinated Shutdown (Task 5.3)", () => {
+describe("Coordinated Shutdown", () => {
   let protoRoot: protobuf.Root;
   const rulesIndex = new Map();
   const PROTO_DIR = path.resolve("protos");

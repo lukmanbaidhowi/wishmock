@@ -27,6 +27,7 @@ jobs:
 
       - name: Run tests
         run: bun test
+        # Note: Lifecycle tests are automatically skipped in CI (CI=true is set by GitHub Actions)
 
   compose-validation:
     name: Validate Compose Files

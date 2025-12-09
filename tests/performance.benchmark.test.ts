@@ -6,8 +6,6 @@
  * - Memory usage with concurrent connections
  * - Latency across different protocols (Connect, gRPC-Web, gRPC)
  * 
- * Requirements: 1.1, 1.2, 1.3
- * 
  * Skip by default in `bun test`. Set BENCHMARK=true to enable.
  */
 
@@ -271,7 +269,7 @@ describeBenchmark("Performance Benchmarks", () => {
 
       console.log(`Connect (JSON) throughput: ${throughput.toFixed(2)} req/s`);
       expect(throughput).toBeGreaterThan(0);
-    });
+    }, 30000); // 30 second timeout
 
     test("Connect protocol throughput (binary)", async () => {
       if (!connectServer) {
@@ -309,7 +307,7 @@ describeBenchmark("Performance Benchmarks", () => {
 
       console.log(`Connect (Binary) throughput: ${throughput.toFixed(2)} req/s`);
       expect(throughput).toBeGreaterThan(0);
-    });
+    }, 30000); // 30 second timeout
 
     test("Native gRPC throughput", async () => {
       if (!grpcServer) {
@@ -360,7 +358,7 @@ describeBenchmark("Performance Benchmarks", () => {
 
       console.log(`Native gRPC throughput: ${throughput.toFixed(2)} req/s`);
       expect(throughput).toBeGreaterThan(0);
-    });
+    }, 30000); // 30 second timeout
   });
 
   describe("Latency Benchmarks", () => {
@@ -393,7 +391,7 @@ describeBenchmark("Performance Benchmarks", () => {
 
       console.log(`Connect (JSON) latency - mean: ${stats.mean.toFixed(2)}ms, p95: ${stats.p95.toFixed(2)}ms, p99: ${stats.p99.toFixed(2)}ms`);
       expect(stats.mean).toBeGreaterThan(0);
-    });
+    }, 20000); // 20 second timeout
 
     test("Connect protocol latency (binary)", async () => {
       if (!connectServer) {
@@ -428,7 +426,7 @@ describeBenchmark("Performance Benchmarks", () => {
 
       console.log(`Connect (Binary) latency - mean: ${stats.mean.toFixed(2)}ms, p95: ${stats.p95.toFixed(2)}ms, p99: ${stats.p99.toFixed(2)}ms`);
       expect(stats.mean).toBeGreaterThan(0);
-    });
+    }, 20000); // 20 second timeout
 
     test("Native gRPC latency", async () => {
       if (!grpcServer) {
@@ -476,7 +474,7 @@ describeBenchmark("Performance Benchmarks", () => {
 
       console.log(`Native gRPC latency - mean: ${stats.mean.toFixed(2)}ms, p95: ${stats.p95.toFixed(2)}ms, p99: ${stats.p99.toFixed(2)}ms`);
       expect(stats.mean).toBeGreaterThan(0);
-    });
+    }, 20000); // 20 second timeout
   });
 
   describe("Concurrent Connection Benchmarks", () => {
@@ -531,7 +529,7 @@ describeBenchmark("Performance Benchmarks", () => {
 
         console.log(`Connect (JSON) [${concurrency} connections]: ${throughput.toFixed(2)} req/s, memory: ${memoryUsed.toFixed(2)} MB`);
         expect(throughput).toBeGreaterThan(0);
-      });
+      }, 60000); // 60 second timeout for concurrent tests
 
       test(`Native gRPC with ${concurrency} concurrent connections`, async () => {
         if (!grpcServer) {
@@ -601,7 +599,7 @@ describeBenchmark("Performance Benchmarks", () => {
 
         console.log(`Native gRPC [${concurrency} connections]: ${throughput.toFixed(2)} req/s, memory: ${memoryUsed.toFixed(2)} MB`);
         expect(throughput).toBeGreaterThan(0);
-      });
+      }, 60000); // 60 second timeout for concurrent tests
     }
   });
 

@@ -3,9 +3,7 @@
 [![npm version](https://img.shields.io/npm/v/wishmock.svg)](https://www.npmjs.com/package/wishmock)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-Wishmock is a gRPC mock platform that bundles the server, admin HTTP API, and lightweight web UI in one package.  
-Load `.proto` files directly, define rule-based responses in YAML/JSON, and iterate quickly with hot reload on Bun or zero‑downtime rolling restarts on Node cluster.  
-The project ships with MCP servers, a multi-stage Docker build (now including TypeScript declaration shims), and first-class tooling for grpcurl and observability experiments.
+Wishmock is a gRPC and Connect RPC mock platform that bundles the server, admin HTTP API, and lightweight web UI in one package. Load `.proto` files directly, define rule-based responses in YAML/JSON, and iterate quickly with hot reload on Bun or zero‑downtime rolling restarts on Node cluster. The project ships with MCP servers, server reflection support, validation engine, and is container-ready. Native gRPC-Web support is built-in via Connect RPC without requiring an additional proxy layer.
 
 ## Table of Contents
 - [Features](#features)
@@ -67,11 +65,73 @@ The project ships with MCP servers, a multi-stage Docker build (now including Ty
 - **Streaming modes** — Unary, server, client, and bidirectional with delays, loops, and random ordering
 - **Hot reload + zero-downtime** — Watch protos/rules in dev; rolling restarts in Node cluster
 - **TLS/mTLS + reflection** — Plaintext and TLS ports; first-class grpcurl support via server reflection
-- **Connect RPC support** — Native browser support with Connect, gRPC-Web, and gRPC protocols without proxy
+- **Connect RPC support** — Native browser support with Connect, gRPC-Web, and gRPC protocols without requiring an additional proxy layer
+- **Unified architecture** — Shared request handling ensures consistent behavior across all protocols
 - **Admin API + Web UI + MCP** — REST admin endpoints, static console, and MCP (SDK + SSE) for automation
 - **Docker + compose validation** — Multi-stage image, healthchecks, and scripts for lint/dry-run/smoke with artifacts
 - **Observability & health** — `/`, `/liveness`, `/readiness`, and `/admin/status` with detailed metrics
 - **Asset workflows** — Upload protos/rules via Admin API; auto-regenerate reflection descriptors on changes
+
+## Architecture
+
+Wishmock uses a unified architecture where both native gRPC and Connect RPC servers share the same core logic, ensuring consistent behavior across all protocols.
+
+### Shared Core Design
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                      Wishmock Application                       │
+│                                                                 │
+│  ┌────────────────────────────────────────────────────────────┐ │
+│  │                   Shared Core Logic                        │ │
+│  │                                                            │ │
+│  │  ┌──────────────┐  ┌──────────────┐  ┌─────────────────┐   │ │
+│  │  │ Rule Matcher │  │  Validation  │  │ Response        │   │ │
+│  │  │              │  │  Engine      │  │ Selector        │   │ │
+│  │  └──────────────┘  └──────────────┘  └─────────────────┘   │ │
+│  │                                                            │ │
+│  │  ┌──────────────┐  ┌──────────────┐                        │ │
+│  │  │ Proto Root   │  │ Rules Index  │                        │ │
+│  │  │ (Shared)     │  │ (Shared)     │                        │ │
+│  │  └──────────────┘  └──────────────┘                        │ │
+│  └────────────────────────────────────────────────────────────┘ │
+│                          │                                      │
+│           ┌──────────────┴──────────────┐                       │
+│           │                             │                       │
+│  ┌────────▼────────┐          ┌─────────▼────────┐              │
+│  │ gRPC Protocol   │          │ Connect Protocol │              │
+│  │ Adapter         │          │ Adapter          │              │
+│  │                 │          │                  │              │
+│  │ - Metadata      │          │ - Metadata       │              │
+│  │   extraction    │          │   extraction     │              │
+│  │ - Error mapping │          │ - Error mapping  │              │
+│  │ - Streaming     │          │ - Streaming      │              │
+│  └─────────────────┘          └──────────────────┘              │
+│           │                             │                       │
+│  ┌────────▼────────┐          ┌─────────▼────────┐              │
+│  │ Native gRPC     │          │ Connect RPC      │              │
+│  │ Server          │          │ Server           │              │
+│  │ (port 50050)    │          │ (port 50052)     │              │
+│  └─────────────────┘          └──────────────────┘              │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Key Benefits
+
+- **Single Source of Truth**: Rule matching, validation, and response selection logic is shared
+- **Protocol Consistency**: Identical behavior across gRPC, Connect, and gRPC-Web protocols
+- **Coordinated Lifecycle**: Servers start, reload, and shutdown together with shared state
+- **Easier Testing**: Core logic can be tested independently of protocol specifics
+- **Maintainability**: Changes to business logic automatically apply to all protocols
+
+### How It Works
+
+1. **Request Normalization**: Protocol adapters convert incoming requests (gRPC or Connect) to a normalized format
+2. **Shared Processing**: The normalized request flows through shared rule matching, validation, and response selection
+3. **Response Conversion**: The normalized response is converted back to the appropriate protocol format
+4. **Consistent Errors**: Error codes and messages are mapped consistently across protocols
+
+For detailed architecture documentation, see [docs/architecture.md](docs/architecture.md).
 
 ## Quick Start (Global Install)
 
@@ -520,7 +580,7 @@ grpcurl -import-path protos -proto helloworld.proto -d '{"name":"Tom"}' -cacert 
 
 ## Connect RPC Support
 
-Wishmock supports Connect RPC, providing native browser support for three protocols without requiring a proxy like Envoy:
+Wishmock supports Connect RPC, providing native browser support for three protocols without requiring an additional proxy layer:
 - **Connect protocol** - Modern RPC with JSON and binary formats
 - **gRPC-Web** - Browser-compatible gRPC over HTTP/1.1
 - **gRPC** - Standard gRPC protocol compatibility
@@ -607,7 +667,7 @@ Response includes:
 - Endpoint: `POST http://localhost:50052/package.Service/Method`
 
 **gRPC-Web Protocol:**
-- Browser-compatible without proxy
+- Browser-compatible without requiring an additional proxy layer
 - Binary protocol (base64 in HTTP/1.1)
 - Works with existing gRPC-Web clients
 - Endpoint: `POST http://localhost:50052/package.Service/Method`
@@ -671,7 +731,7 @@ grpcurl -plaintext -d '{"name":"World"}' localhost:50050 helloworld.Greeter/SayH
 
 ### Key Features
 
-- **No Proxy Required** - Direct browser-to-server communication
+- **No Additional Proxy Layer Required** - Direct browser-to-server communication
 - **Protocol Flexibility** - One endpoint supports three protocols
 - **Rule Compatibility** - Same rules work across all protocols
 - **Validation Support** - Full validation engine integration
@@ -680,14 +740,14 @@ grpcurl -plaintext -d '{"name":"World"}' localhost:50050 helloworld.Greeter/SayH
 - **TLS Support** - Optional TLS encryption
 - **Reflection** - Service discovery via reflection API
 
-### Migration from Envoy
+### Migration Notes
 
-**Note:** Connect RPC replaces the need for Envoy proxy for gRPC-Web support. If you're currently using Envoy:
+**Note:** Connect RPC provides built-in gRPC-Web support without requiring an additional proxy layer. If you're currently using a separate proxy:
 
 1. **Immediate:** Connect RPC is available now - no breaking changes to existing gRPC setup
-2. **Recommended:** New projects should use Connect RPC instead of Envoy
-3. **Migration:** Existing Envoy setups can migrate at your convenience
-4. **Support:** Envoy configuration examples remain available for existing users
+2. **Recommended:** New projects should use Connect RPC's built-in gRPC-Web support
+3. **Migration:** Existing proxy setups can migrate at your convenience
+4. **Support:** Configuration examples remain available for existing users
 
 For complete documentation including streaming examples, error handling, client setup, and migration guides, see [docs/connect-rpc-support.md](docs/connect-rpc-support.md).
 
@@ -848,6 +908,16 @@ Guides:
   bun run benchmark
   ```
   See [Performance Benchmarks](docs/performance-benchmarks.md) for detailed results and methodology.
+
+- Profile shared handler performance:
+  ```bash
+  # Quick profile (10,000 iterations)
+  bun run profile:handler
+  
+  # Comprehensive profile (multiple scenarios)
+  bun run profile:handler:comprehensive
+  ```
+  See [Performance Optimization](docs/performance-optimization.md) for profiling results and analysis.
 
 ## Server Streaming Support
 
@@ -1218,6 +1288,3 @@ For a guided workflow and CI integration pointers, see the scripts under `script
 - **[Rule Examples](docs/rule-examples.md)** - Comprehensive rule patterns and examples
 - **[Validation Guide](docs/pgv-validation.md)** - Protovalidate and PGV validation setup
 - **[Protovalidate Guide](docs/protovalidate-validation.md)** - Buf Protovalidate integration
-
-## Development
-This project was developed with AI assistance to accelerate development and ensure comprehensive feature coverage.

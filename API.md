@@ -100,7 +100,7 @@ Content-Type: application/json
 ```
 GET /admin/status
 ```
-Returns comprehensive server status including gRPC ports, Connect RPC status, loaded services, and rules.
+Returns comprehensive server status including gRPC ports, Connect RPC status, loaded services, rules, validation info, and unified metrics across both servers.
 
 Response:
 ```json
@@ -121,6 +121,7 @@ Response:
     "tls_enabled": false,
     "error": null,
     "services": ["helloworld.Greeter", "calendar.CalendarService"],
+    "reflection_enabled": true,
     "metrics": {
       "requests_total": 100,
       "requests_by_protocol": {
@@ -136,22 +137,105 @@ Response:
   "protos": {
     "loaded": ["helloworld.proto", "calendar.proto"],
     "skipped": []
+  },
+  "validation": {
+    "enabled": true,
+    "source": "protovalidate",
+    "mode": "per_message",
+    "message_cel": "experimental",
+    "coverage": {
+      "total_types": 10,
+      "validated_types": 8,
+      "types": ["helloworld.HelloRequest", "calendar.Event"]
+    }
+  },
+  "reload": {
+    "last_triggered": "2024-12-09T10:00:00.000Z",
+    "mode": "initial",
+    "downtime_detected": false
+  },
+  "shared_metrics": {
+    "validation": {
+      "checks_total": 250,
+      "failures_total": 15,
+      "failures_by_type": {
+        "helloworld.HelloRequest": 10,
+        "calendar.Event": 5
+      }
+    },
+    "rule_matching": {
+      "attempts_total": 300,
+      "matches_total": 285,
+      "misses_total": 15,
+      "matches_by_rule": {
+        "helloworld.greeter.sayhello": 200,
+        "calendar.calendarservice.createevent": 85
+      }
+    }
   }
 }
 ```
 
-**Connect RPC Status Fields:**
-- `enabled` - Whether Connect RPC server is running
-- `port` - Port number for Connect RPC (only present when enabled)
-- `cors_enabled` - Whether CORS is enabled for browser clients
-- `cors_origins` - List of allowed CORS origins (only present when CORS enabled)
-- `tls_enabled` - Whether TLS is enabled for Connect RPC
-- `error` - Error message if Connect RPC failed to start (null if no error)
-- `services` - List of services registered with Connect RPC
-- `metrics` - Request metrics (only present when server is running)
-  - `requests_total` - Total number of RPC requests processed
+**Response Fields:**
+
+**Legacy Compatibility:**
+- `grpc_port` - Plaintext gRPC port (backward compatibility, same as `grpc_ports.plaintext`)
+
+**Native gRPC Server Status:**
+- `grpc_ports.plaintext` - Plaintext gRPC port number
+- `grpc_ports.tls` - TLS gRPC port number (only present when TLS enabled)
+- `grpc_ports.tls_enabled` - Whether TLS is enabled
+- `grpc_ports.mtls` - Whether mutual TLS (client certificates) is required
+- `grpc_ports.tls_error` - Error message if TLS failed to start (null if no error)
+
+**Connect RPC Server Status:**
+- `connect_rpc.enabled` - Whether Connect RPC server is running
+- `connect_rpc.port` - Port number for Connect RPC (only present when enabled)
+- `connect_rpc.cors_enabled` - Whether CORS is enabled for browser clients
+- `connect_rpc.cors_origins` - List of allowed CORS origins (only present when CORS enabled)
+- `connect_rpc.tls_enabled` - Whether TLS is enabled for Connect RPC
+- `connect_rpc.error` - Error message if Connect RPC failed to start (null if no error)
+- `connect_rpc.services` - List of services registered with Connect RPC
+- `connect_rpc.reflection_enabled` - Whether gRPC reflection is enabled
+- `connect_rpc.metrics` - Protocol-specific request metrics (only present when server is running)
+  - `requests_total` - Total number of RPC requests processed by Connect server
   - `requests_by_protocol` - Breakdown by protocol (connect, grpc_web, grpc)
-  - `errors_total` - Total number of errors
+  - `errors_total` - Total number of errors in Connect server
+
+**Service and Rule Information:**
+- `loaded_services` - List of all loaded gRPC services (available on both servers)
+- `rules` - List of all loaded rule keys
+- `protos.loaded` - List of successfully loaded proto files
+- `protos.skipped` - List of proto files that failed to load (with error details)
+
+**Validation Information:**
+- `validation.enabled` - Whether validation is enabled
+- `validation.source` - Validation source (auto, pgv, protovalidate)
+- `validation.mode` - Validation mode for streaming (per_message, aggregate)
+- `validation.message_cel` - Message-level CEL validation status (experimental)
+- `validation.coverage.total_types` - Total number of message types
+- `validation.coverage.validated_types` - Number of types with validation rules
+- `validation.coverage.types` - List of validated message types
+
+**Reload Information:**
+- `reload.last_triggered` - ISO timestamp of last reload
+- `reload.mode` - Reload mode (initial, cluster, bun-watch)
+- `reload.downtime_detected` - Whether reload took longer than 1 second
+
+**Shared Metrics (Unified Across Both Servers):**
+- `shared_metrics.validation.checks_total` - Total validation checks performed
+- `shared_metrics.validation.failures_total` - Total validation failures
+- `shared_metrics.validation.failures_by_type` - Validation failures grouped by message type
+- `shared_metrics.rule_matching.attempts_total` - Total rule match attempts
+- `shared_metrics.rule_matching.matches_total` - Total successful rule matches
+- `shared_metrics.rule_matching.misses_total` - Total rule match misses (no rule found)
+- `shared_metrics.rule_matching.matches_by_rule` - Rule matches grouped by rule key
+
+**Notes:**
+- Shared metrics track operations across both native gRPC and Connect RPC servers
+- Connect RPC metrics are protocol-specific and only track Connect server requests
+- All servers share the same protobuf definitions, rules, and validation engine
+- Status endpoint maintains backward compatibility with existing fields
 
 ## Connect RPC Endpoints
 

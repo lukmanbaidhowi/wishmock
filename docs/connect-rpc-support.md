@@ -10,6 +10,18 @@ Wishmock supports **Connect RPC**, a modern protocol that provides native browse
 
 This unified approach simplifies your development setup while maintaining all Wishmock features including rule matching, validation, streaming, and reflection.
 
+### Shared Infrastructure
+
+Connect RPC and native gRPC servers share the same core infrastructure, ensuring consistent behavior across all protocols:
+
+- **Shared Rule Matching**: Both servers use identical rule matching logic - rules defined once work across all protocols
+- **Shared Validation Engine**: Request validation (Protovalidate/PGV) behaves identically regardless of protocol
+- **Shared Proto Root**: Both servers use the same protobuf definitions and service registry
+- **Shared Rules Index**: Rule updates are immediately reflected across all protocols
+- **Coordinated Lifecycle**: Servers start, reload, and shutdown together with synchronized state
+
+This architecture guarantees that a request sent via gRPC will produce the same response as the identical request sent via Connect or gRPC-Web. See [docs/architecture.md](../docs/architecture.md) for detailed design documentation.
+
 ## Quick Start
 
 ### 1. Enable Connect RPC
@@ -528,7 +540,7 @@ for await (const response of client.chat(generateRequests())) {
 
 ## Rule Matching
 
-Rules work identically across all three protocols (Connect, gRPC-Web, gRPC).
+Rules work identically across all three protocols (Connect, gRPC-Web, gRPC) because both servers use the same shared rule matching logic. When you define a rule, it automatically works for all protocols without any protocol-specific configuration.
 
 ### Rule File Naming
 
@@ -600,7 +612,7 @@ See `README.md` for complete rule syntax.
 
 ## Validation
 
-Validation works seamlessly with Connect RPC using the same validation engine.
+Validation works seamlessly with Connect RPC using the same shared validation engine. Both native gRPC and Connect RPC servers validate requests using identical logic, ensuring consistent validation behavior across all protocols.
 
 ### Enable Validation
 
@@ -715,10 +727,10 @@ Check Connect RPC status via Admin API:
 curl http://localhost:4319/admin/status
 ```
 
-Response includes Connect RPC metrics:
+Response includes Connect RPC metrics alongside native gRPC metrics and shared metrics (validation, rule matching):
 ```json
 {
-  "connect": {
+  "connect_rpc": {
     "enabled": true,
     "port": 50052,
     "cors_enabled": true,
@@ -728,14 +740,25 @@ Response includes Connect RPC metrics:
       "connect": 800,
       "grpc_web": 300,
       "grpc": 134
-    }
+    },
+    "errors_total": 5
   },
   "grpc": {
     "plaintext_port": 50050,
-    "tls_port": 50051
+    "tls_port": 50051,
+    "requests_total": 2000,
+    "errors_total": 10
+  },
+  "shared_metrics": {
+    "validation_checks": 3234,
+    "validation_failures": 15,
+    "rule_matches": 3219,
+    "rule_misses": 0
   }
 }
 ```
+
+The `shared_metrics` section shows metrics that apply to both servers, reflecting the unified architecture where validation and rule matching are shared across all protocols.
 
 ### Health Check
 
@@ -944,6 +967,7 @@ If you're currently using Envoy proxy for gRPC-Web support, see the [Connect Mig
 
 ## Additional Resources
 
+- [Wishmock Architecture](./architecture.md) - Detailed design of shared infrastructure
 - [Connect RPC Documentation](https://connectrpc.com/docs/)
 - [Connect Protocol Specification](https://connectrpc.com/docs/protocol)
 - [Wishmock README](../README.md)

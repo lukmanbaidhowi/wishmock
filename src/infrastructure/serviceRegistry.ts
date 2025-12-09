@@ -10,19 +10,21 @@
 
 import protobuf from "protobufjs";
 import type { RuleDoc } from "../domain/types.js";
-import { runtime as validationRuntime } from "./validation/runtime.js";
-import { makeInvalidArgError } from "../domain/validation/errors.js";
-import { selectResponse } from "../domain/usecases/selectResponse.js";
+import type { NormalizedRequest, NormalizedResponse, NormalizedError } from "../domain/types/normalized.js";
 import {
-  extractMetadata,
-  normalizeRequest,
-  formatResponse,
-  mapValidationError,
-  mapNoRuleMatchError,
+  handleUnaryRequest,
+  handleServerStreamingRequest,
+  handleClientStreamingRequest,
+  handleBidiStreamingRequest,
+} from "../domain/usecases/handleRequest.js";
+import {
+  normalizeConnectUnaryRequest,
+  normalizeConnectServerStreamingRequest,
+  sendConnectResponse,
+  sendConnectError,
   type ConnectContext,
-  type ConnectError,
-  type InternalRequest,
 } from "./protocolAdapter.js";
+import { normalizeTypeName } from "./utils/protoUtils.js";
 
 /**
  * Rules index type (same as used in grpcServer.ts)
@@ -101,15 +103,6 @@ export function registerServices(
   const json = root.toJSON({ keepComments: false }) as {
     nested?: Record<string, JsonNS>;
   };
-
-  /**
-   * Normalize type name to fully qualified name
-   */
-  function normalizeTypeName(name: string, pkgPrefix: string): string {
-    const n = name.startsWith(".") ? name.slice(1) : name;
-    if (n.includes(".")) return n;
-    return pkgPrefix ? `${pkgPrefix}.${n}` : n;
-  }
 
   /**
    * Walk the namespace tree to discover services
@@ -228,23 +221,35 @@ export function registerServices(
 /**
  * Create a method handler for a specific RPC method
  * 
- * Generates a Connect RPC handler that:
- * 1. Validates the request using the validation engine
- * 2. Matches the request against configured rules
- * 3. Returns the configured response
- * 4. Handles streaming patterns appropriately
+ * This is the core function that generates Connect RPC handlers. It creates a thin
+ * protocol adapter that:
+ * 1. Converts Connect request to normalized format (protocol-agnostic)
+ * 2. Calls shared handler (validation, rule matching, response selection)
+ * 3. Converts normalized response back to Connect format (protocol-specific)
+ * 4. Handles all four streaming patterns (unary, server, client, bidi)
+ * 
+ * The handler acts as a bridge between Connect RPC's protocol-specific format
+ * and Wishmock's protocol-agnostic shared handler. This ensures that the same
+ * validation, rule matching, and response selection logic is used for both
+ * gRPC and Connect RPC.
+ * 
+ * Streaming patterns:
+ * - Unary: Single request → Single response (async function)
+ * - Server streaming: Single request → Multiple responses (async generator)
+ * - Client streaming: Multiple requests → Single response (async function with iterable)
+ * - Bidirectional: Multiple requests → Multiple responses (async generator with iterable)
  * 
  * @param serviceName Full service name (e.g., "helloworld.Greeter")
  * @param methodName Method name (e.g., "SayHello")
- * @param reqType Request message type
- * @param resType Response message type
- * @param requestStream Whether request is streaming
- * @param responseStream Whether response is streaming
+ * @param reqType Request message type from protobuf
+ * @param resType Response message type from protobuf
+ * @param requestStream Whether request is streaming (client/bidi)
+ * @param responseStream Whether response is streaming (server/bidi)
  * @param ruleKey Rule key for matching (e.g., "helloworld.greeter.sayhello")
- * @param rulesIndex Index of rules
- * @param logger Logger function
- * @param errorLogger Error logger function
- * @returns Connect method handler
+ * @param rulesIndex Index of rules (shared with gRPC server)
+ * @param logger Logger function for info messages
+ * @param errorLogger Error logger function for error messages
+ * @returns Connect method handler (function or async generator)
  */
 export function createMethodHandler(
   serviceName: string,
@@ -262,39 +267,29 @@ export function createMethodHandler(
   if (!requestStream && !responseStream) {
     return async (req: any, context: ConnectContext): Promise<any> => {
       try {
-        // Normalize request to internal format
-        const internalReq = normalizeRequest(
-          serviceName,
-          methodName,
+        // Step 1: Convert Connect request to normalized format
+        const normalizedReq = normalizeConnectUnaryRequest(
           req,
           reqType,
-          context
+          resType,
+          context,
+          serviceName,
+          methodName
         );
 
-        // Validate request
-        const validationError = validateRequest(reqType, internalReq.data);
-        if (validationError) {
-          throw validationError;
+        // Step 2: Call shared handler (validation, rule matching, response selection)
+        const result = await handleUnaryRequest(normalizedReq, rulesIndex, logger);
+
+        // Step 3: Convert normalized response back to Connect format
+        if ('code' in result) {
+          // This is an error
+          throw sendConnectError(result as NormalizedError);
         }
-
-        // Match rule and get response
-        const rule = rulesIndex.get(ruleKey);
-        if (!rule) {
-          throw mapNoRuleMatchError(serviceName, methodName);
-        }
-
-        // Get response from rule
-        const responseData = matchRuleAndGetResponse(
-          rule,
-          internalReq.data,
-          internalReq.metadata
-        );
-
-        // Format response
-        return formatResponse(responseData, resType);
+        
+        return sendConnectResponse(result as NormalizedResponse, resType, context);
       } catch (error: any) {
         errorLogger(
-          `Connect unary error ${serviceName}/${methodName}:`,
+          `[connect] ${serviceName}/${methodName} - error:`,
           error?.message || error
         );
         throw error;
@@ -309,50 +304,34 @@ export function createMethodHandler(
       context: ConnectContext
     ): AsyncGenerator<any> {
       try {
-        // Normalize request
-        const internalReq = normalizeRequest(
-          serviceName,
-          methodName,
+        // Step 1: Convert Connect request to normalized format
+        const normalizedReq = normalizeConnectServerStreamingRequest(
           req,
           reqType,
-          context
+          resType,
+          context,
+          serviceName,
+          methodName
         );
 
-        // Validate request
-        const validationError = validateRequest(reqType, internalReq.data);
-        if (validationError) {
-          throw validationError;
-        }
-
-        // Match rule
-        const rule = rulesIndex.get(ruleKey);
-        if (!rule) {
-          throw mapNoRuleMatchError(serviceName, methodName);
-        }
-
-        // Get streaming responses from rule
-        const responses = getStreamingResponses(
-          rule,
-          internalReq.data,
-          internalReq.metadata
-        );
-
-        // Optimization: Pre-format all responses to avoid per-yield overhead
-        // This is faster for small-to-medium response counts
-        const formattedResponses = responses.map(r => formatResponse(r, resType));
-
-        // Yield each response
-        for (const response of formattedResponses) {
+        // Step 2: Call shared handler (validation, rule matching, streaming)
+        for await (const result of handleServerStreamingRequest(normalizedReq, rulesIndex, logger)) {
           // Check for cancellation
           if (context.signal?.aborted) {
             break;
           }
 
-          yield response;
+          // Step 3: Convert normalized response back to Connect format
+          if ('code' in result) {
+            // This is an error
+            throw sendConnectError(result as NormalizedError);
+          }
+          
+          yield sendConnectResponse(result as NormalizedResponse, resType, context);
         }
       } catch (error: any) {
         errorLogger(
-          `Connect server streaming error ${serviceName}/${methodName}:`,
+          `[connect] ${serviceName}/${methodName} - error:`,
           error?.message || error
         );
         throw error;
@@ -367,71 +346,43 @@ export function createMethodHandler(
       context: ConnectContext
     ): Promise<any> => {
       try {
-        const messages: any[] = [];
-
-        // Collect all request messages
-        for await (const req of requests) {
-          // Check for cancellation
-          if (context.signal?.aborted) {
-            throw new Error("Request cancelled");
-          }
-
-          // Validate each message in per_message mode
-          if (
-            validationRuntime.active() &&
-            validationRuntime.mode() === "per_message"
-          ) {
-            const validationError = validateRequest(reqType, req);
-            if (validationError) {
-              throw validationError;
+        // Step 1: Convert Connect request stream to normalized request stream
+        async function* normalizeRequests(): AsyncGenerator<NormalizedRequest> {
+          for await (const req of requests) {
+            // Check for cancellation
+            if (context.signal?.aborted) {
+              break;
             }
-          }
 
-          messages.push(req);
-        }
-
-        // Validate in aggregate mode
-        if (
-          validationRuntime.active() &&
-          validationRuntime.mode() === "aggregate"
-        ) {
-          for (const msg of messages) {
-            const validationError = validateRequest(reqType, msg);
-            if (validationError) {
-              throw validationError;
-            }
+            // Normalize each individual request message
+            yield normalizeConnectUnaryRequest(
+              req,
+              reqType,
+              resType,
+              context,
+              serviceName,
+              methodName
+            );
           }
         }
 
-        // Build aggregate request object
-        const aggregateReq = buildStreamRequest(messages);
-
-        // Normalize to internal format
-        const internalReq = normalizeRequest(
-          serviceName,
-          methodName,
-          aggregateReq,
-          reqType,
-          context
+        // Step 2: Call shared handler (validation, aggregation, rule matching)
+        const result = await handleClientStreamingRequest(
+          normalizeRequests(),
+          rulesIndex,
+          logger
         );
 
-        // Match rule
-        const rule = rulesIndex.get(ruleKey);
-        if (!rule) {
-          throw mapNoRuleMatchError(serviceName, methodName);
+        // Step 3: Convert normalized response back to Connect format
+        if ('code' in result) {
+          // This is an error
+          throw sendConnectError(result as NormalizedError);
         }
-
-        // Get response
-        const responseData = matchRuleAndGetResponse(
-          rule,
-          internalReq.data,
-          internalReq.metadata
-        );
-
-        return formatResponse(responseData, resType);
+        
+        return sendConnectResponse(result as NormalizedResponse, resType, context);
       } catch (error: any) {
         errorLogger(
-          `Connect client streaming error ${serviceName}/${methodName}:`,
+          `[connect] ${serviceName}/${methodName} - error:`,
           error?.message || error
         );
         throw error;
@@ -445,315 +396,52 @@ export function createMethodHandler(
     context: ConnectContext
   ): AsyncGenerator<any> {
     try {
-      // Optimization: Pre-allocate array with estimated size
-      const messages: any[] = [];
+      // Step 1: Convert Connect request stream to normalized request stream
+      async function* normalizeRequests(): AsyncGenerator<NormalizedRequest> {
+        for await (const req of requests) {
+          // Check for cancellation
+          if (context.signal?.aborted) {
+            break;
+          }
 
-      // Collect all request messages
-      for await (const req of requests) {
+          // Normalize each individual request message
+          yield normalizeConnectUnaryRequest(
+            req,
+            reqType,
+            resType,
+            context,
+            serviceName,
+            methodName
+          );
+        }
+      }
+
+      // Step 2: Call shared handler (validation, aggregation, rule matching, streaming)
+      for await (const result of handleBidiStreamingRequest(
+        normalizeRequests(),
+        rulesIndex,
+        logger
+      )) {
         // Check for cancellation
         if (context.signal?.aborted) {
           break;
         }
 
-        // Validate each message in per_message mode
-        if (
-          validationRuntime.active() &&
-          validationRuntime.mode() === "per_message"
-        ) {
-          const validationError = validateRequest(reqType, req);
-          if (validationError) {
-            throw validationError;
-          }
+        // Step 3: Convert normalized response back to Connect format
+        if ('code' in result) {
+          // This is an error
+          throw sendConnectError(result as NormalizedError);
         }
-
-        messages.push(req);
-      }
-
-      // Validate in aggregate mode
-      if (
-        validationRuntime.active() &&
-        validationRuntime.mode() === "aggregate"
-      ) {
-        for (const msg of messages) {
-          const validationError = validateRequest(reqType, msg);
-          if (validationError) {
-            throw validationError;
-          }
-        }
-      }
-
-      // Build aggregate request
-      const aggregateReq = buildStreamRequest(messages);
-
-      // Normalize to internal format
-      const internalReq = normalizeRequest(
-        serviceName,
-        methodName,
-        aggregateReq,
-        reqType,
-        context
-      );
-
-      // Match rule
-      const rule = rulesIndex.get(ruleKey);
-      if (!rule) {
-        throw mapNoRuleMatchError(serviceName, methodName);
-      }
-
-      // Get streaming responses
-      const responses = getStreamingResponses(
-        rule,
-        internalReq.data,
-        internalReq.metadata
-      );
-
-      // Optimization: Pre-format all responses to avoid per-yield overhead
-      const formattedResponses = responses.map(r => formatResponse(r, resType));
-
-      // Yield each response
-      for (const response of formattedResponses) {
-        // Check for cancellation
-        if (context.signal?.aborted) {
-          break;
-        }
-
-        yield response;
+        
+        yield sendConnectResponse(result as NormalizedResponse, resType, context);
       }
     } catch (error: any) {
       errorLogger(
-        `Connect bidi streaming error ${serviceName}/${methodName}:`,
+        `[connect] ${serviceName}/${methodName} - error:`,
         error?.message || error
       );
       throw error;
     }
   };
 }
-
-/**
- * Validate request using the validation engine
- * 
- * Integrates with Wishmock's existing validation runtime to validate
- * requests against protovalidate or PGV rules.
- * 
- * @param type Message type
- * @param message Message data
- * @returns Connect error if validation fails, null otherwise
- */
-function validateRequest(
-  type: protobuf.Type,
-  message: unknown
-): ConnectError | null {
-  // Skip if validation is not active
-  if (!validationRuntime.active()) {
-    return null;
-  }
-
-  // Get validator for this type
-  const typeName = type.fullName || type.name;
-  const validator = validationRuntime.getValidator(typeName);
-
-  if (!validator) {
-    // No validator for this type
-    return null;
-  }
-
-  try {
-    // Run validation
-    const result = validator(message);
-
-    if (!result.ok) {
-      // Emit validation failure events (same as grpcServer.ts)
-      try {
-        const violations = (result as any)?.violations || [];
-        if (Array.isArray(violations) && violations.length > 0) {
-          for (const v of violations) {
-            validationRuntime.emitValidationEvent({
-              typeName,
-              result: "failure",
-              details: {
-                constraint_id: v?.rule,
-                grpc_status: "InvalidArgument",
-                error_message: v?.description,
-              },
-            });
-          }
-        } else {
-          // Fallback: emit a single failure event
-          validationRuntime.emitValidationEvent({
-            typeName,
-            result: "failure",
-            details: { grpc_status: "InvalidArgument" },
-          });
-        }
-      } catch {}
-
-      // Return validation error
-      return mapValidationError(result);
-    }
-
-    // Emit validation success event
-    try {
-      validationRuntime.emitValidationEvent({
-        typeName,
-        result: "success",
-        details: {},
-      });
-    } catch {}
-
-    return null;
-  } catch (ve: any) {
-    // Validation engine threw an error
-    return {
-      code: "internal" as any,
-      message: ve?.message || "validation error",
-    };
-  }
-}
-
-// Simple LRU cache for rule responses to reduce repeated matching overhead
-// This is particularly effective for high-frequency identical requests
-class ResponseCache {
-  private cache = new Map<string, { response: any; timestamp: number }>();
-  private maxSize = 1000;
-  private ttlMs = 5000; // 5 seconds TTL
-
-  get(key: string): any | null {
-    const entry = this.cache.get(key);
-    if (!entry) return null;
-
-    // Check if entry is expired
-    if (Date.now() - entry.timestamp > this.ttlMs) {
-      this.cache.delete(key);
-      return null;
-    }
-
-    return entry.response;
-  }
-
-  set(key: string, response: any): void {
-    // Evict oldest entry if cache is full
-    if (this.cache.size >= this.maxSize) {
-      const firstKey = this.cache.keys().next().value;
-      if (firstKey) {
-        this.cache.delete(firstKey);
-      }
-    }
-
-    this.cache.set(key, {
-      response,
-      timestamp: Date.now(),
-    });
-  }
-
-  clear(): void {
-    this.cache.clear();
-  }
-}
-
-// Global response cache (shared across all handlers)
-const responseCache = new ResponseCache();
-
-/**
- * Match rule and get response
- * 
- * Matches the request against the rule configuration and returns
- * the appropriate response. Uses the same selectResponse logic as
- * the existing gRPC server.
- * 
- * Optimization: Caches responses for identical requests to reduce
- * repeated rule matching overhead.
- * 
- * @param rule Rule document
- * @param requestData Request data
- * @param metadata Request metadata
- * @returns Response data
- */
-function matchRuleAndGetResponse(
-  rule: RuleDoc,
-  requestData: any,
-  metadata: Record<string, unknown>
-): any {
-  // Create cache key from request data and metadata
-  // Only cache if request is small enough (avoid memory issues)
-  const requestStr = JSON.stringify(requestData);
-  const metadataStr = JSON.stringify(metadata);
-  
-  if (requestStr.length < 1000 && metadataStr.length < 1000) {
-    const cacheKey = `${requestStr}:${metadataStr}`;
-    
-    // Check cache first
-    const cached = responseCache.get(cacheKey);
-    if (cached !== null) {
-      return cached;
-    }
-    
-    // Use the existing selectResponse function from domain layer
-    const selected = selectResponse(rule, requestData, metadata);
-    const response = selected?.body ?? {};
-    
-    // Cache the response
-    responseCache.set(cacheKey, response);
-    
-    return response;
-  }
-  
-  // For large requests, skip caching
-  const selected = selectResponse(rule, requestData, metadata);
-  return selected?.body ?? {};
-}
-
-/**
- * Get streaming responses from rule
- * 
- * Extracts streaming responses from rule configuration.
- * Handles both single responses (repeated) and explicit stream arrays.
- * 
- * @param rule Rule document
- * @param requestData Request data
- * @param metadata Request metadata
- * @returns Array of response data
- */
-function getStreamingResponses(
-  rule: RuleDoc,
-  requestData: any,
-  metadata: Record<string, unknown>
-): any[] {
-  // Use selectResponse to get the matched response option
-  const selected = selectResponse(rule, requestData, metadata);
-
-  // Check if response has stream_items array
-  if (selected?.stream_items && Array.isArray(selected.stream_items)) {
-    return selected.stream_items;
-  }
-
-  // Single response body - return as array
-  return [selected?.body ?? {}];
-}
-
-/**
- * Build aggregate request from stream of messages
- * 
- * Combines multiple request messages into a single aggregate request.
- * This is used for client streaming and bidirectional streaming.
- * 
- * @param messages Array of request messages
- * @returns Aggregate request object
- */
-function buildStreamRequest(messages: any[]): any {
-  if (messages.length === 0) {
-    return {};
-  }
-
-  if (messages.length === 1) {
-    return messages[0];
-  }
-
-  // Combine messages into an aggregate object
-  // This follows the same logic as grpcHandlerUtils.ts
-  return {
-    messages,
-    count: messages.length,
-  };
-}
-
 

@@ -4,7 +4,7 @@
 - when:
     metadata: {}
     request: {}
-  response:
+  body:
     message: "Hello from Wishmock Connect RPC!"
   priority: 1
 
@@ -13,7 +13,7 @@
     metadata: {}
     request:
       name: "World"
-  response:
+  body:
     message: "Hello, World! Welcome to Connect RPC."
   priority: 2
 
@@ -22,7 +22,7 @@
     metadata: {}
     request:
       name: "NodeJS"
-  response:
+  body:
     message: "Hello, NodeJS! You're using Connect RPC successfully."
   priority: 2
 
@@ -33,6 +33,6 @@
       name: "ValidUser123"
       email: "user@example.com"
       age: 25
-  response:
+  body:
     message: "Hello, ValidUser123! Your data passed validation."
   priority: 3

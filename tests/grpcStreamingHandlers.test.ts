@@ -14,6 +14,7 @@ class MockReadableStream extends EventEmitter {
   metadata = new grpc.Metadata();
   cancelled = false;
   setTrailer = () => {};
+  sendMetadata = () => {};
 }
 
 class MockDuplexStream extends EventEmitter {
@@ -31,6 +32,16 @@ class MockDuplexStream extends EventEmitter {
     this.finished = true;
     this.emit("finished");
   }
+
+  destroy(error?: any) {
+    this.destroyed = true;
+    if (error) {
+      this.emit("error", error);
+    }
+  }
+
+  sendMetadata = () => {};
+  setTrailer = () => {};
 }
 
 describe("gRPC streaming handlers", () => {

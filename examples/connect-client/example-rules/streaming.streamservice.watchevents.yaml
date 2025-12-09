@@ -4,7 +4,7 @@
 - when:
     metadata: {}
     request: {}
-  response:
+  body:
     stream:
       - event_id: "evt1"
         event_type: "notification"
@@ -25,7 +25,7 @@
     metadata: {}
     request:
       topic: "notifications"
-  response:
+  body:
     stream:
       - event_id: "notif1"
         event_type: "important"

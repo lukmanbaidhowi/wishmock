@@ -4,7 +4,7 @@
 - when:
     metadata: {}
     request: {}
-  response:
+  body:
     stream:
       - id: "msg1"
         content: "Welcome to Connect RPC streaming!"
@@ -33,7 +33,7 @@
     metadata: {}
     request:
       user_id: "user123"
-  response:
+  body:
     stream:
       - id: "msg_user123_1"
         content: "Hello user123! Here are your messages."

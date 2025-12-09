@@ -109,6 +109,6 @@ export function createAdminApp(params: AdminAppParams) {
     app.post('/admin/assets/refresh', uploadController.refreshAssets);
   }
   
-  app.listen(httpPort, '0.0.0.0', () => console.log(`[wishmock] HTTP admin on ${httpPort}`));
-  return app;
+  const server = app.listen(httpPort, '0.0.0.0', () => console.log(`[wishmock] HTTP admin on ${httpPort}`));
+  return server;
 }

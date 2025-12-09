@@ -15,8 +15,8 @@
  *   node examples/connect-client/node.mjs --server http://localhost:50052
  */
 
-import { createPromiseClient } from '@connectrpc/connect';
-import { createConnectTransport } from '@connectrpc/connect-node';
+// Using native fetch API instead of Connect RPC client library
+// This makes the example simpler and doesn't require additional dependencies
 
 // Parse command line arguments
 const args = process.argv.slice(2);
@@ -27,12 +27,6 @@ const serverUrl = args.includes('--server')
 console.log('🔌 Connect RPC Node.js Client Example');
 console.log('=====================================\n');
 console.log(`Server URL: ${serverUrl}\n`);
-
-// Create Connect transport
-const transport = createConnectTransport({
-  baseUrl: serverUrl,
-  httpVersion: '1.1',
-});
 
 /**
  * Example 1: Unary RPC - SayHello

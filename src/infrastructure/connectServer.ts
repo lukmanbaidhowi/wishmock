@@ -407,6 +407,323 @@ export async function createConnectServer(
   }
 
   /**
+   * Handle RPC requests (Connect, gRPC-Web, or gRPC protocols)
+   */
+  async function handleRpcRequest(req: any, res: any, protocol: "connect" | "grpc_web" | "grpc") {
+    try {
+      // Parse the URL to extract service and method
+      // Format: /package.Service/Method
+      const url = req.url || "";
+      const match = url.match(/^\/([^/]+)\/([^/?]+)/);
+      
+      if (!match) {
+        metrics.errors_total++;
+        res.writeHead(400, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({
+          code: "invalid_argument",
+          message: "Invalid RPC path format. Expected: /package.Service/Method",
+        }));
+        return;
+      }
+
+      const [, serviceName, methodName] = match;
+      const fullServiceName = serviceName; // e.g., "helloworld.Greeter"
+      
+      // Look up the service
+      const serviceMeta = services.get(fullServiceName);
+      if (!serviceMeta) {
+        metrics.errors_total++;
+        res.writeHead(404, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({
+          code: "not_found",
+          message: `Service ${fullServiceName} not found`,
+        }));
+        return;
+      }
+
+      // Look up the method
+      const methodMeta = serviceMeta.methods.get(methodName);
+      if (!methodMeta) {
+        metrics.errors_total++;
+        res.writeHead(404, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({
+          code: "not_found",
+          message: `Method ${methodName} not found in service ${fullServiceName}`,
+        }));
+        return;
+      }
+
+      // Read request body
+      const chunks: Buffer[] = [];
+      req.on("data", (chunk: Buffer) => {
+        chunks.push(chunk);
+      });
+
+      req.on("end", async () => {
+        try {
+          const bodyBuffer = Buffer.concat(chunks);
+          let requestData: any;
+
+          // Parse request based on content type
+          const contentType = req.headers["content-type"] || "";
+          
+          if (contentType.includes("application/json") || contentType.includes("application/grpc-web+json")) {
+            // JSON format (Connect protocol or gRPC-Web JSON)
+            const bodyText = bodyBuffer.toString("utf-8");
+            requestData = bodyText ? JSON.parse(bodyText) : {};
+          } else if (contentType.includes("application/grpc-web")) {
+            // gRPC-Web binary format with length prefix
+            // Format: [flags:1byte][length:4bytes][message:length bytes]
+            if (bodyBuffer.length >= 5) {
+              // Skip the 5-byte header (1 byte flags + 4 bytes length)
+              const messageBuffer = bodyBuffer.slice(5);
+              requestData = methodMeta.requestType.decode(messageBuffer);
+            } else {
+              // Empty message or invalid format
+              requestData = {};
+            }
+          } else if (contentType.includes("application/proto") || contentType.includes("application/grpc")) {
+            // Binary protobuf format (may also have length prefix for gRPC)
+            if (bodyBuffer.length >= 5 && bodyBuffer[0] === 0) {
+              // Has gRPC length prefix
+              const messageBuffer = bodyBuffer.slice(5);
+              requestData = methodMeta.requestType.decode(messageBuffer);
+            } else {
+              // Raw protobuf without prefix
+              requestData = methodMeta.requestType.decode(bodyBuffer);
+            }
+          } else {
+            // Default to JSON
+            const bodyText = bodyBuffer.toString("utf-8");
+            requestData = bodyText ? JSON.parse(bodyText) : {};
+          }
+
+          // Import the shared handler
+          const { handleUnaryRequest, handleServerStreamingRequest } = await import("../domain/usecases/handleRequest.js");
+
+          // Handle based on streaming type
+          if (!methodMeta.requestStream && !methodMeta.responseStream) {
+            // Unary request
+            await handleUnaryRpc(req, res, serviceMeta, methodMeta, requestData, handleUnaryRequest);
+          } else if (!methodMeta.requestStream && methodMeta.responseStream) {
+            // Server streaming
+            await handleServerStreamingRpc(req, res, serviceMeta, methodMeta, requestData, handleServerStreamingRequest);
+          } else {
+            // Client streaming and bidi streaming not yet supported via HTTP
+            metrics.errors_total++;
+            res.writeHead(501, { "Content-Type": "application/json" });
+            res.end(JSON.stringify({
+              code: "unimplemented",
+              message: "Client streaming and bidirectional streaming not yet supported via Connect HTTP",
+            }));
+          }
+        } catch (parseError: any) {
+          errorLogger("Failed to parse request:", parseError?.message || parseError);
+          metrics.errors_total++;
+          res.writeHead(400, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({
+            code: "invalid_argument",
+            message: `Failed to parse request: ${parseError?.message || "unknown error"}`,
+          }));
+        }
+      });
+
+      req.on("error", (err: any) => {
+        errorLogger("Request stream error:", err?.message || err);
+        metrics.errors_total++;
+        res.writeHead(500, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({
+          code: "internal",
+          message: "Request stream error",
+        }));
+      });
+    } catch (error: any) {
+      errorLogger("RPC request error:", error?.message || error);
+      metrics.errors_total++;
+      res.writeHead(500, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({
+        code: "internal",
+        message: error?.message || "Internal server error",
+      }));
+    }
+  }
+
+  /**
+   * Handle unary RPC request
+   */
+  async function handleUnaryRpc(
+    req: any,
+    res: any,
+    serviceMeta: ConnectServiceMeta,
+    methodMeta: any,
+    requestData: any,
+    handleUnaryRequest: any
+  ) {
+    try {
+      // Create normalized request
+      const normalizedRequest = {
+        service: serviceMeta.fullServiceName,
+        method: methodMeta.methodName,
+        metadata: extractMetadataFromHeaders(req.headers),
+        data: requestData,
+        requestType: methodMeta.requestType,
+        responseType: methodMeta.responseType,
+        requestStream: false,
+        responseStream: false,
+      };
+
+      // Call shared handler
+      const result = await handleUnaryRequest(normalizedRequest, rulesIndex, logger);
+
+      // Check if result is an error
+      if ("code" in result && result.code !== "OK") {
+        // Send error response
+        const statusCode = mapErrorCodeToHttpStatus(result.code);
+        res.writeHead(statusCode, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({
+          code: result.code.toLowerCase(),
+          message: result.message,
+          details: result.details,
+        }));
+        return;
+      }
+
+      // Send success response
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify(result.data || {}));
+    } catch (error: any) {
+      errorLogger("Unary RPC error:", error?.message || error);
+      metrics.errors_total++;
+      res.writeHead(500, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({
+        code: "internal",
+        message: error?.message || "Internal server error",
+      }));
+    }
+  }
+
+  /**
+   * Handle server streaming RPC request
+   */
+  async function handleServerStreamingRpc(
+    req: any,
+    res: any,
+    serviceMeta: ConnectServiceMeta,
+    methodMeta: any,
+    requestData: any,
+    handleServerStreamingRequest: any
+  ) {
+    try {
+      // Create normalized request
+      const normalizedRequest = {
+        service: serviceMeta.fullServiceName,
+        method: methodMeta.methodName,
+        metadata: extractMetadataFromHeaders(req.headers),
+        data: requestData,
+        requestType: methodMeta.requestType,
+        responseType: methodMeta.responseType,
+        requestStream: false,
+        responseStream: true,
+      };
+
+      // Set headers for streaming
+      res.writeHead(200, {
+        "Content-Type": "application/json",
+        "Transfer-Encoding": "chunked",
+      });
+
+      // Call shared handler and stream responses
+      const generator = handleServerStreamingRequest(normalizedRequest, rulesIndex, logger);
+      
+      for await (const result of generator) {
+        // Check if result is an error
+        if ("code" in result && result.code !== "OK") {
+          // Send error and end stream
+          res.write(JSON.stringify({
+            error: {
+              code: result.code.toLowerCase(),
+              message: result.message,
+              details: result.details,
+            }
+          }) + "\n");
+          res.end();
+          return;
+        }
+
+        // Send response message
+        res.write(JSON.stringify(result.data || {}) + "\n");
+      }
+
+      // End the stream
+      res.end();
+    } catch (error: any) {
+      errorLogger("Server streaming RPC error:", error?.message || error);
+      metrics.errors_total++;
+      
+      // Try to send error if response not yet sent
+      if (!res.headersSent) {
+        res.writeHead(500, { "Content-Type": "application/json" });
+      }
+      
+      res.end(JSON.stringify({
+        code: "internal",
+        message: error?.message || "Internal server error",
+      }));
+    }
+  }
+
+  /**
+   * Extract metadata from HTTP headers
+   */
+  function extractMetadataFromHeaders(headers: any): Record<string, string> {
+    const metadata: Record<string, string> = {};
+    
+    for (const key in headers) {
+      // Skip pseudo-headers
+      if (key.charCodeAt(0) === 58) {
+        continue;
+      }
+      
+      const value = headers[key];
+      if (value !== undefined) {
+        const normalizedKey = key.toLowerCase();
+        metadata[normalizedKey] = Array.isArray(value) 
+          ? (value.length === 1 ? String(value[0]) : value.join(', '))
+          : String(value);
+      }
+    }
+    
+    return metadata;
+  }
+
+  /**
+   * Map error code to HTTP status code
+   */
+  function mapErrorCodeToHttpStatus(code: string): number {
+    const statusMap: Record<string, number> = {
+      "OK": 200,
+      "CANCELLED": 499,
+      "UNKNOWN": 500,
+      "INVALID_ARGUMENT": 400,
+      "DEADLINE_EXCEEDED": 504,
+      "NOT_FOUND": 404,
+      "ALREADY_EXISTS": 409,
+      "PERMISSION_DENIED": 403,
+      "RESOURCE_EXHAUSTED": 429,
+      "FAILED_PRECONDITION": 412,
+      "ABORTED": 409,
+      "OUT_OF_RANGE": 400,
+      "UNIMPLEMENTED": 501,
+      "INTERNAL": 500,
+      "UNAVAILABLE": 503,
+      "DATA_LOSS": 500,
+      "UNAUTHENTICATED": 401,
+    };
+    
+    return statusMap[code] || 500;
+  }
+
+  /**
    * Handle incoming HTTP requests
    */
   function handleRequest(req: any, res: any) {
@@ -443,14 +760,8 @@ export async function createConnectServer(
     metrics.requests_total++;
     metrics.requests_by_protocol[protocol]++;
 
-    // Placeholder for Connect RPC protocol handling
-    // This will be implemented in task 2 (protocol adapter) and task 3 (service registry)
-    metrics.errors_total++;
-    res.writeHead(501, { "Content-Type": "application/json" });
-    res.end(JSON.stringify({
-      code: "unimplemented",
-      message: "Connect RPC protocol handling not yet implemented",
-    }));
+    // Handle RPC requests
+    handleRpcRequest(req, res, protocol);
   }
 
   /**

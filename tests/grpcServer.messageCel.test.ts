@@ -48,7 +48,7 @@ describe("gRPC Server - Message-level CEL enforcement (Protovalidate)", () => {
     return root;
   }
 
-  it("returns INVALID_ARGUMENT when message-level CEL fails", () => {
+  it("returns INVALID_ARGUMENT when message-level CEL fails", async () => {
     const root = makeRoot();
     validationRuntime.loadFromRoot(root);
 
@@ -73,14 +73,16 @@ describe("gRPC Server - Message-level CEL enforcement (Protovalidate)", () => {
 
     let capturedErr: any | null = null;
     let capturedRes: any | null = null;
-    handler(call, (err: any, res: any) => { capturedErr = err; capturedRes = res; });
+    
+    // Wait for async handler to complete
+    await handler(call, (err: any, res: any) => { capturedErr = err; capturedRes = res; });
 
     expect(capturedRes).toBeUndefined();
     expect(capturedErr).toBeTruthy();
     expect(capturedErr.code).toBe(grpc.status.INVALID_ARGUMENT);
   });
 
-  it("succeeds when message-level CEL passes", () => {
+  it("succeeds when message-level CEL passes", async () => {
     const root = makeRoot();
     validationRuntime.loadFromRoot(root);
 
@@ -105,7 +107,9 @@ describe("gRPC Server - Message-level CEL enforcement (Protovalidate)", () => {
 
     let capturedErr: any | null = null;
     let capturedRes: any | null = null;
-    handler(call, (err: any, res: any) => { capturedErr = err; capturedRes = res; });
+    
+    // Wait for async handler to complete
+    await handler(call, (err: any, res: any) => { capturedErr = err; capturedRes = res; });
 
     expect(capturedErr).toBeNull();
     expect(capturedRes).toBeDefined();

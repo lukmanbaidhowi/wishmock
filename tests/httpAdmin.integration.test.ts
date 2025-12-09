@@ -47,6 +47,40 @@ describe("Admin API Integration - Connect RPC Status", () => {
           loaded: ["helloworld.proto", "calendar.proto"],
           skipped: [],
         },
+        validation: {
+          enabled: true,
+          source: "protovalidate",
+          mode: "per_message",
+          coverage: {
+            total_types: 10,
+            validated_types: 8,
+            types: ["helloworld.HelloRequest", "calendar.Event"],
+          },
+        },
+        reload: {
+          last_triggered: "2024-12-09T10:00:00.000Z",
+          mode: "initial",
+          downtime_detected: false,
+        },
+        shared_metrics: {
+          validation: {
+            checks_total: 250,
+            failures_total: 15,
+            failures_by_type: {
+              "helloworld.HelloRequest": 10,
+              "calendar.Event": 5,
+            },
+          },
+          rule_matching: {
+            attempts_total: 300,
+            matches_total: 285,
+            misses_total: 15,
+            matches_by_rule: {
+              "helloworld.greeter.sayhello": 200,
+              "calendar.calendarservice.createevent": 85,
+            },
+          },
+        },
       }),
       listServices: (): ServicesResponse => ({
         services: [],
@@ -92,7 +126,7 @@ describe("Admin API Integration - Connect RPC Status", () => {
       expect(data.connect_rpc.services).toContain("helloworld.Greeter");
       expect(data.connect_rpc.services).toContain("calendar.CalendarService");
 
-      // Verify metrics
+      // Verify Connect RPC metrics
       expect(data.connect_rpc.metrics).toBeDefined();
       expect(data.connect_rpc.metrics.requests_total).toBe(100);
       expect(data.connect_rpc.metrics.requests_by_protocol).toBeDefined();
@@ -100,6 +134,38 @@ describe("Admin API Integration - Connect RPC Status", () => {
       expect(data.connect_rpc.metrics.requests_by_protocol.grpc_web).toBe(30);
       expect(data.connect_rpc.metrics.requests_by_protocol.grpc).toBe(20);
       expect(data.connect_rpc.metrics.errors_total).toBe(5);
+
+      // Verify validation information
+      expect(data.validation).toBeDefined();
+      expect(data.validation.enabled).toBe(true);
+      expect(data.validation.source).toBe("protovalidate");
+      expect(data.validation.mode).toBe("per_message");
+      expect(data.validation.coverage).toBeDefined();
+      expect(data.validation.coverage.total_types).toBe(10);
+      expect(data.validation.coverage.validated_types).toBe(8);
+
+      // Verify reload information
+      expect(data.reload).toBeDefined();
+      expect(data.reload.last_triggered).toBe("2024-12-09T10:00:00.000Z");
+      expect(data.reload.mode).toBe("initial");
+      expect(data.reload.downtime_detected).toBe(false);
+
+      // Verify shared metrics
+      expect(data.shared_metrics).toBeDefined();
+      expect(data.shared_metrics.validation).toBeDefined();
+      expect(data.shared_metrics.validation.checks_total).toBe(250);
+      expect(data.shared_metrics.validation.failures_total).toBe(15);
+      expect(data.shared_metrics.validation.failures_by_type).toBeDefined();
+      expect(data.shared_metrics.validation.failures_by_type["helloworld.HelloRequest"]).toBe(10);
+      expect(data.shared_metrics.validation.failures_by_type["calendar.Event"]).toBe(5);
+
+      expect(data.shared_metrics.rule_matching).toBeDefined();
+      expect(data.shared_metrics.rule_matching.attempts_total).toBe(300);
+      expect(data.shared_metrics.rule_matching.matches_total).toBe(285);
+      expect(data.shared_metrics.rule_matching.misses_total).toBe(15);
+      expect(data.shared_metrics.rule_matching.matches_by_rule).toBeDefined();
+      expect(data.shared_metrics.rule_matching.matches_by_rule["helloworld.greeter.sayhello"]).toBe(200);
+      expect(data.shared_metrics.rule_matching.matches_by_rule["calendar.calendarservice.createevent"]).toBe(85);
     });
   });
 

@@ -1,8 +1,5 @@
-service: helloworld.Greeter
-method: ValidateString
-rules:
-  - matcher:
-      type: always
-    selector: default
-    response:
+match:
+  request: {}
+responses:
+  - body:
       message: "All string validation constraints passed!"

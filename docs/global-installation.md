@@ -101,15 +101,21 @@ message HelloReply {
 Create `rules/grpc/helloworld.greeter.sayhello.yaml`:
 
 ```yaml
-- when:
-    request:
-      name: "World"
-  response:
-    message: "Hello World!"
+match:
+  request: {}
+responses:
+  - when:
+      request.name: "World"
+    body:
+      message: "Hello World!"
   
-- response:
-    message: "Hello {{request.name}}!"
+  - body:
+      message: "Hello {{request.name}}!"
 ```
+
+**Field Access Syntax:**
+- In `match` block: Keys can contain dots → `match.request["user.age"]`, `match.metadata["key"]`
+- In `when` block: Use dot notation → `when["metadata.key"]`, `when["request.user.age"]`
 
 ### 5. Test Your Service
 
@@ -455,11 +461,13 @@ Wishmock supports all gRPC streaming modes:
 Rules can match on gRPC metadata:
 
 ```yaml
-- when:
-    metadata:
-      authorization: "Bearer token123"
-  response:
-    status: "authenticated"
+match:
+  request: {}
+responses:
+  - when:
+      metadata.authorization: "Bearer token123"
+    body:
+      status: "authenticated"
 ```
 
 ## Links

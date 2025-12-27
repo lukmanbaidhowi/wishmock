@@ -458,11 +458,13 @@ const response = await client.sayHello({ name: "World" });
 
 **Rule** (`helloworld.greeter.sayhello.yaml`):
 ```yaml
-- when:
-    request:
-      name: World
-  response:
-    message: "Hello, World!"
+match:
+  request: {}
+responses:
+  - when:
+      request.name: "World"
+    body:
+      message: "Hello, World!"
 ```
 
 ### Server Streaming
@@ -478,11 +480,12 @@ for await (const event of client.watchEvents({ topic: "news" })) {
 
 **Rule** (`streaming.streamservice.watchevents.yaml`):
 ```yaml
-- when:
-    request:
-      topic: news
-  response:
-    stream:
+match:
+  request: {}
+responses:
+  - when:
+      request.topic: "news"
+    stream_items:
       - event: "Breaking news 1"
         timestamp: "2024-01-01T00:00:00Z"
       - event: "Breaking news 2"
@@ -509,9 +512,12 @@ console.log(response.count); // 3
 
 **Rule** (`streaming.streamservice.uploadmessages.yaml`):
 ```yaml
-- response:
-    count: 3
-    status: "Received all messages"
+match:
+  request: {}
+responses:
+  - body:
+      count: 3
+      status: "Received all messages"
 ```
 
 ### Bidirectional Streaming
@@ -532,8 +538,10 @@ for await (const response of client.chat(generateRequests())) {
 
 **Rule** (`streaming.streamservice.chat.yaml`):
 ```yaml
-- response:
-    stream:
+match:
+  request: {}
+responses:
+  - stream_items:
       - reply: "Hi there!"
       - reply: "I'm doing great, thanks!"
 ```
@@ -541,6 +549,25 @@ for await (const response of client.chat(generateRequests())) {
 ## Rule Matching
 
 Rules work identically across all three protocols (Connect, gRPC-Web, gRPC) because both servers use the same shared rule matching logic. When you define a rule, it automatically works for all protocols without any protocol-specific configuration.
+
+### Field Access Syntax
+
+**In `match` block** (nested object format):
+```yaml
+match:
+  metadata:
+    authorization: "Bearer token"  # Direct key (no "metadata." prefix)
+  request:
+    user.age: { gte: 18 }  # Dot notation for nested fields
+```
+
+**In `when` block** (dot notation format):
+```yaml
+responses:
+  - when:
+      metadata.authorization: "Bearer token"  # With "metadata." prefix
+      request.user.id: 123  # With "request." prefix
+```
 
 ### Rule File Naming
 
@@ -595,15 +622,15 @@ Connect RPC extracts metadata from HTTP headers:
 All request fields are available for matching:
 
 ```yaml
-- when:
-    request:
-      user:
-        id: 123
-        name: "Alice"
-      filters:
-        status: "active"
-  response:
-    results: [...]
+match:
+  request: {}
+responses:
+  - when:
+      request.user.id: 123
+      request.user.name: "Alice"
+      request.filters.status: "active"
+    body:
+      results: [...]
 ```
 
 Operators: `$eq`, `$ne`, `$gt`, `$gte`, `$lt`, `$lte`, `$in`, `$nin`, `$regex`, `$exists`

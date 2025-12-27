@@ -28,7 +28,10 @@ Server runs on:
 
 1. Open `http://localhost:4319/app/`
 2. Upload your `.proto` file
-3. Start testing!
+3. (Optional) Create rules in `rules/grpc/` for custom responses
+   - Without rules, server returns empty `{}` with status OK
+   - See Mock Rules section below for examples
+4. Start testing!
 
 Test it:
 ```bash
@@ -58,17 +61,32 @@ grpcurl -plaintext -d '{"name":"World"}' localhost:50050 hello.Greeter/SayHello
 Create `rules/grpc/hello.greeter.sayhello.yaml`:
 
 ```yaml
-# Conditional response
-- when:
-    request:
-      name: "Alice"
-  response:
-    message: "Hello Alice!"
-
-# Template response (default)
-- response:
-    message: "Hello {{request.name}}!"
+match:
+  request: {}
+responses:
+  # Conditional response
+  - when:
+      request.name: "Alice"
+    body:
+      message: "Hello Alice!"
+  
+  # Template response (default)
+  - body:
+      message: "Hi {{request.name}}!"
 ```
+
+**Field Access Syntax:**
+- In `match` block: Keys can contain dots → `match.request["user.age"]`
+- In `when` block: Use dot notation → `when["request.user.age"]` or `when["metadata.role"]`
+- Example:
+  ```yaml
+  match:
+    request:
+      user.age: { gte: 18 }  # Key is "user.age" (string with dot)
+  responses:
+    - when:
+        metadata.role: "admin"  # Key is "metadata.role"
+  ```
 
 ## Commands
 
@@ -126,9 +144,11 @@ curl http://localhost:4319/admin/services
 ### Streaming
 
 ```yaml
-# Server streaming
-- response:
-    stream:
+match:
+  request: {}
+responses:
+  # Server streaming
+  - stream_items:
       - message: "First"
         delay_ms: 100
       - message: "Second"
@@ -150,22 +170,26 @@ Enable: `VALIDATION_ENABLED=true wishmock`
 ### Error Simulation
 
 ```yaml
-- when:
-    request:
-      name: "error"
-  error:
-    code: 3  # INVALID_ARGUMENT
-    message: "Invalid request"
+match:
+  request: {}
+responses:
+  - when:
+      request.name: "error"
+    error:
+      code: 3  # INVALID_ARGUMENT
+      message: "Invalid request"
 ```
 
 ### Metadata Matching
 
 ```yaml
-- when:
-    metadata:
-      authorization: "Bearer token"
-  response:
-    status: "authenticated"
+match:
+  request: {}
+responses:
+  - when:
+      metadata.authorization: "Bearer token"
+    body:
+      status: "authenticated"
 ```
 
 ## Docker

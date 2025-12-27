@@ -1,8 +1,5 @@
-service: helloworld.Greeter
-method: ValidateNumber
-rules:
-  - matcher:
-      type: always
-    selector: default
-    response:
+match:
+  request: {}
+responses:
+  - body:
       message: "All number validation constraints passed!"

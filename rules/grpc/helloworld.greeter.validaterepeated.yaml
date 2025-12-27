@@ -1,8 +1,5 @@
-service: helloworld.Greeter
-method: ValidateRepeated
-rules:
-  - matcher:
-      type: always
-    selector: default
-    response:
+match:
+  request: {}
+responses:
+  - body:
       message: "All repeated field validation constraints passed!"

@@ -1,32 +1,26 @@
-import { describe, it, expect, beforeEach, vi, mock } from "bun:test";
+import { describe, it, expect, beforeEach, vi } from "bun:test";
 import protobuf from "protobufjs";
+import { createGrpcServer } from "../src/infrastructure/grpcServer.js";
 
 const serverCtorMock = vi.fn(() => ({ addService: vi.fn() }));
 const loadPackageDefinitionMock = vi.fn();
 const protoLoaderLoadSyncMock = vi.fn();
 const wrapServerMock = vi.fn((server: any) => server);
 
-mock.module("@grpc/grpc-js", () => ({
-  __esModule: true,
+// Mock objects for injection
+const mockGrpc = {
   Server: serverCtorMock,
   loadPackageDefinition: loadPackageDefinitionMock,
-  status: { CANCELLED: "CANCELLED" },
-}));
+  status: {
+    CANCELLED: 1,
+    INTERNAL: 13
+  },
+  Metadata: class { },
+} as any;
 
-mock.module("@grpc/proto-loader", () => ({
-  __esModule: true,
+const mockProtoLoader = {
   loadSync: protoLoaderLoadSyncMock,
-}));
-
-mock.module("../src/infrastructure/reflection.js", () => ({
-  __esModule: true,
-  default: wrapServerMock,
-}));
-
-const grpcModulePromise = import("@grpc/grpc-js");
-const protoLoaderModulePromise = import("@grpc/proto-loader");
-const reflectionModulePromise = import("../src/infrastructure/reflection.js");
-const grpcServerModulePromise = import("../src/infrastructure/grpcServer.js");
+} as any;
 
 describe("createGrpcServer", () => {
   beforeEach(() => {
@@ -63,11 +57,6 @@ describe("createGrpcServer", () => {
   }
 
   it("uses proto-loader definition when available", async () => {
-    const { createGrpcServer } = await grpcServerModulePromise;
-    await grpcModulePromise;
-    await protoLoaderModulePromise;
-    await reflectionModulePromise;
-
     const root = buildRoot();
     const rules = new Map([
       ["example.greeter.sayhello", { responses: [{ body: { message: "hi" } }] }],
@@ -81,9 +70,18 @@ describe("createGrpcServer", () => {
     const log = vi.fn();
     const err = vi.fn();
 
-    const { servicesMap } = await createGrpcServer(root, rules as any, log, err, {
-      entryFiles: ["/virtual/hello.proto"],
-    });
+    const { servicesMap } = await createGrpcServer(
+      root,
+      rules as any,
+      log,
+      err,
+      { entryFiles: ["/virtual/hello.proto"] },
+      {
+        grpc: mockGrpc,
+        protoLoader: mockProtoLoader,
+        wrapServerWithReflection: wrapServerMock,
+      }
+    );
 
     expect(protoLoaderLoadSyncMock).toHaveBeenCalledWith([
       "/virtual/hello.proto",
@@ -104,11 +102,6 @@ describe("createGrpcServer", () => {
   });
 
   it("falls back to fallback definition when packageObject does not have service", async () => {
-    const { createGrpcServer } = await grpcServerModulePromise;
-    await grpcModulePromise;
-    await protoLoaderModulePromise;
-    await reflectionModulePromise;
-
     const root = buildRoot();
     const rules = new Map([
       ["example.greeter.sayhello", { responses: [{ body: { message: "hi" } }] }],
@@ -119,9 +112,18 @@ describe("createGrpcServer", () => {
     const log = vi.fn();
     const err = vi.fn();
 
-    const { servicesMap } = await createGrpcServer(root, rules as any, log, err, {
-      entryFiles: ["/virtual/hello.proto"],
-    });
+    const { servicesMap } = await createGrpcServer(
+      root,
+      rules as any,
+      log,
+      err,
+      { entryFiles: ["/virtual/hello.proto"] },
+      {
+        grpc: mockGrpc,
+        protoLoader: mockProtoLoader,
+        wrapServerWithReflection: wrapServerMock,
+      }
+    );
 
     const serverInstance = serverCtorMock.mock.results[0].value as { addService: vi.Mock };
     expect(serverInstance.addService).toHaveBeenCalledTimes(1);

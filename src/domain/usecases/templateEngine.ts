@@ -1,4 +1,4 @@
-import get from "lodash.get";
+import { getValue as get } from "../../utils/objectUtils.js";
 import type { MetadataMap } from "../types.js";
 
 export interface TemplateContext {
@@ -24,11 +24,11 @@ export function renderTemplate(template: unknown, context: TemplateContext): unk
   if (typeof template === 'string') {
     return renderStringTemplate(template, context);
   }
-  
+
   if (Array.isArray(template)) {
     return template.map(item => renderTemplate(item, context));
   }
-  
+
   if (template && typeof template === 'object') {
     const result: Record<string, unknown> = {};
     for (const [key, value] of Object.entries(template)) {
@@ -36,7 +36,7 @@ export function renderTemplate(template: unknown, context: TemplateContext): unk
     }
     return result;
   }
-  
+
   return template;
 }
 
@@ -57,24 +57,24 @@ function evaluateExpression(expr: string, context: TemplateContext): unknown {
   if (expr.includes('(')) {
     return evaluateFunction(expr, context);
   }
-  
+
   // Handle property access
   if (expr.startsWith('request.')) {
     return get(context.request, expr.slice(8));
   }
-  
+
   if (expr.startsWith('metadata.')) {
     return get(context.metadata, expr.slice(9));
   }
-  
+
   if (expr.startsWith('stream.')) {
     return get(context.stream, expr.slice(7));
   }
-  
+
   if (expr.startsWith('utils.')) {
     return get(context.utils, expr.slice(6));
   }
-  
+
   // Direct property access
   return get(context, expr);
 }
@@ -82,15 +82,15 @@ function evaluateExpression(expr: string, context: TemplateContext): unknown {
 function evaluateFunction(expr: string, context: TemplateContext): unknown {
   const funcMatch = expr.match(/^(\w+(?:\.\w+)*)\((.*)\)$/);
   if (!funcMatch) return expr;
-  
+
   const [, funcPath, argsStr] = funcMatch;
   const func = get(context, funcPath);
-  
+
   if (typeof func !== 'function') return expr;
-  
+
   // Parse simple arguments (strings, numbers, booleans)
   const args = argsStr ? parseArguments(argsStr, context) : [];
-  
+
   return func(...args);
 }
 
@@ -131,7 +131,7 @@ function parseArguments(argsStr: string, context: TemplateContext): unknown[] {
       }
     }
 
-    if (!inDouble && ch === "'" ) { inSingle = !inSingle; current += ch; continue; }
+    if (!inDouble && ch === "'") { inSingle = !inSingle; current += ch; continue; }
     if (!inSingle && ch === '"') { inDouble = !inDouble; current += ch; continue; }
 
     current += ch;
@@ -144,7 +144,7 @@ function parseArguments(argsStr: string, context: TemplateContext): unknown[] {
 
     // String literal
     if ((trimmed.startsWith('"') && trimmed.endsWith('"')) ||
-        (trimmed.startsWith("'") && trimmed.endsWith("'"))) {
+      (trimmed.startsWith("'") && trimmed.endsWith("'"))) {
       args.push(trimmed.slice(1, -1));
       continue;
     }
@@ -186,10 +186,10 @@ export function createTemplateContext(
     metadata,
     stream: streamInfo
       ? {
-          ...streamInfo,
-          isFirst: streamInfo.index === 0,
-          isLast: streamInfo.index === streamInfo.total - 1,
-        }
+        ...streamInfo,
+        isFirst: streamInfo.index === 0,
+        isLast: streamInfo.index === streamInfo.total - 1,
+      }
       : undefined,
     utils: { ...defaultUtils, ...(utilsOverrides || {}) },
   };

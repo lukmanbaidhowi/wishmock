@@ -1,4 +1,4 @@
-import get from "lodash.get";
+import { getValue as get } from "../../utils/objectUtils.js";
 import type { MetadataMap, ResponseOption, RuleDoc } from "../types.js";
 import { renderTemplate, createTemplateContext } from "./templateEngine.js";
 
@@ -54,30 +54,30 @@ function fallbackOrDefault(ruleDoc: RuleDoc): ResponseOption {
 
 function applyTemplating(response: ResponseOption, req: unknown, metadata: MetadataMap, streamIndex?: number, streamTotal?: number): ResponseOption {
   const context = createTemplateContext(
-    req, 
-    metadata, 
-    streamIndex !== undefined && streamTotal !== undefined 
-      ? { index: streamIndex, total: streamTotal } 
+    req,
+    metadata,
+    streamIndex !== undefined && streamTotal !== undefined
+      ? { index: streamIndex, total: streamTotal }
       : undefined
   );
-  
+
   const templatedResponse = { ...response };
-  
+
   if (templatedResponse.body !== undefined) {
     templatedResponse.body = renderTemplate(templatedResponse.body, context);
   }
-  
+
   if (templatedResponse.stream_items) {
     templatedResponse.stream_items = templatedResponse.stream_items.map((item, index) => {
       const itemContext = createTemplateContext(
-        req, 
-        metadata, 
+        req,
+        metadata,
         { index, total: templatedResponse.stream_items!.length }
       );
       return renderTemplate(item, itemContext);
     });
   }
-  
+
   return templatedResponse;
 }
 
@@ -184,7 +184,7 @@ function compare(actual: unknown, expected: unknown): boolean {
 
   // If we reached here and at least one operator was present, treat as matched; otherwise fall back to equality
   const keys = Object.keys(obj);
-  const known = ["not","exists","regex","flags","contains","in","gt","gte","lt","lte","eq","ne"];
+  const known = ["not", "exists", "regex", "flags", "contains", "in", "gt", "gte", "lt", "lte", "eq", "ne"];
   const hasKnown = keys.some((k) => known.includes(k));
   if (hasKnown) return true;
   // Unknown shape -> default equality against the object string

@@ -6,7 +6,7 @@ import * as protoLoader from "@grpc/proto-loader";
 import wrapServerWithReflection from "./reflection.js";
 import protobuf from "protobufjs";
 import type { RuleDoc } from "../domain/types.js";
-import { 
+import {
   normalizeGrpcUnaryRequest,
   normalizeGrpcServerStreamingRequest,
   sendGrpcResponse,
@@ -32,10 +32,10 @@ export interface HandlerMeta {
   serviceName: string;
   methodName: string;
   handler:
-    | grpc.handleUnaryCall<any, any>
-    | grpc.handleServerStreamingCall<any, any>
-    | grpc.handleClientStreamingCall<any, any>
-    | grpc.handleBidiStreamingCall<any, any>;
+  | grpc.handleUnaryCall<any, any>
+  | grpc.handleServerStreamingCall<any, any>
+  | grpc.handleClientStreamingCall<any, any>
+  | grpc.handleBidiStreamingCall<any, any>;
   reqType: protobuf.Type;
   resType: protobuf.Type;
   ruleKey: string;
@@ -146,7 +146,7 @@ export function buildHandlersFromRoot(rootNamespace: protobuf.Root, rulesIndex: 
           // Client streaming: use shared handler
           handler = (call: grpc.ServerReadableStream<any, any>, callback: grpc.sendUnaryData<any>) => {
             const metadata = extractGrpcMetadata(call.metadata);
-            
+
             // Create async generator from call stream using event listeners
             async function* requestGenerator(): AsyncGenerator<NormalizedRequest> {
               const chunks: any[] = [];
@@ -204,7 +204,7 @@ export function buildHandlersFromRoot(rootNamespace: protobuf.Root, rulesIndex: 
           // Bidirectional streaming: use shared handler
           handler = (call: grpc.ServerDuplexStream<any, any>) => {
             const metadata = extractGrpcMetadata(call.metadata);
-            
+
             // Create async generator from call stream using event listeners
             async function* requestGenerator(): AsyncGenerator<NormalizedRequest> {
               const chunks: any[] = [];
@@ -299,10 +299,27 @@ export function buildHandlersFromRoot(rootNamespace: protobuf.Root, rulesIndex: 
   return servicesMap;
 }
 
-export async function createGrpcServer(rootNamespace: protobuf.Root, rulesIndex: RulesIndex, log: (...a: any[]) => void, err: (...a: any[]) => void, opts?: { protoDir?: string; entryFiles?: string[] }) {
+export interface GrpcServerDependencies {
+  grpc?: typeof grpc;
+  protoLoader?: typeof protoLoader;
+  wrapServerWithReflection?: typeof wrapServerWithReflection;
+}
+
+export async function createGrpcServer(
+  rootNamespace: protobuf.Root,
+  rulesIndex: RulesIndex,
+  log: (...a: any[]) => void,
+  err: (...a: any[]) => void,
+  opts?: { protoDir?: string; entryFiles?: string[] },
+  deps?: GrpcServerDependencies
+) {
+  const g = deps?.grpc || grpc;
+  const pl = deps?.protoLoader || protoLoader;
+  const wrapper = deps?.wrapServerWithReflection || wrapServerWithReflection;
+
   const servicesMap = buildHandlersFromRoot(rootNamespace, rulesIndex, log, err);
   // Prepare raw server; will wrap with reflection after loading package definitions
-  const rawServer = new grpc.Server();
+  const rawServer = new g.Server();
 
   // Load proto definitions via @grpc/proto-loader so reflection can inspect fileDescriptorProtos
   const filesFromRoot = (rootNamespace as any).files as string[] | undefined;
@@ -341,36 +358,36 @@ export async function createGrpcServer(rootNamespace: protobuf.Root, rulesIndex:
       if (opts?.protoDir) {
         const base = path.resolve(opts.protoDir);
         includeDirs = [base];
-        const pushIfDir = (d: string) => { try { if (fs.existsSync(d) && fs.statSync(d).isDirectory()) includeDirs.push(d); } catch {} };
+        const pushIfDir = (d: string) => { try { if (fs.existsSync(d) && fs.statSync(d).isDirectory()) includeDirs.push(d); } catch { } };
         // Add all first-level subdirectories under base
         try {
           for (const name of fs.readdirSync(base)) {
             const p = path.join(base, name);
-            try { if (fs.statSync(p).isDirectory()) pushIfDir(p); } catch {}
+            try { if (fs.statSync(p).isDirectory()) pushIfDir(p); } catch { }
           }
-        } catch {}
+        } catch { }
         // Also add second-level subdirectories under base/google (api, protobuf, rpc, type, etc.) if present
         const googleDir = path.join(base, 'google');
         try {
           if (fs.existsSync(googleDir) && fs.statSync(googleDir).isDirectory()) {
             for (const name of fs.readdirSync(googleDir)) {
               const p = path.join(googleDir, name);
-              try { if (fs.statSync(p).isDirectory()) pushIfDir(p); } catch {}
+              try { if (fs.statSync(p).isDirectory()) pushIfDir(p); } catch { }
             }
           }
-        } catch {}
+        } catch { }
         // Deduplicate
         includeDirs = Array.from(new Set(includeDirs));
       }
-      
+
       log(`(info) Reflection: proto-loader files: ${files.map(f => path.relative(opts?.protoDir || process.cwd(), f)).join(", ")}`);
       log(`(info) Reflection: includeDirs: ${includeDirs.map(d => path.relative(process.cwd(), d)).join(", ")}`);
-      
+
       // Load ALL entry files in a single call so proto-loader retains a complete
       // descriptor set (including transitive dependencies like google/type/*).
       // Loading individually and shallow-merging can drop fileDescriptorProtos.
       try {
-        const pkgDef = protoLoader.loadSync(files, {
+        const pkgDef = pl.loadSync(files, {
           includeDirs,
           keepCase: true,
           longs: String,
@@ -378,7 +395,7 @@ export async function createGrpcServer(rootNamespace: protobuf.Root, rulesIndex:
           defaults: false,
           oneofs: true,
         });
-        packageObject = grpc.loadPackageDefinition(pkgDef);
+        packageObject = g.loadPackageDefinition(pkgDef);
         try {
           const hasDT = !!(packageObject as any)?.google?.type?.DateTime;
           const dt: any = (packageObject as any)?.google?.type?.DateTime;
@@ -394,7 +411,7 @@ export async function createGrpcServer(rootNamespace: protobuf.Root, rulesIndex:
             const resLen = Array.isArray(resType?.fileDescriptorProtos) ? resType.fileDescriptorProtos.length : 0;
             log(`(info) Reflection: calendar.Events/GetEvent descriptors — req: ${reqLen} res: ${resLen}`);
           }
-        } catch {}
+        } catch { }
         for (const f of files) {
           log(`(info) Reflection: loaded ${path.relative(opts?.protoDir || process.cwd(), f)}`);
         }
@@ -412,7 +429,7 @@ export async function createGrpcServer(rootNamespace: protobuf.Root, rulesIndex:
   // Wrap server with reflection, providing the loaded packageObject.
   // We intentionally avoid seeding with protobufjs-generated descriptors,
   // as they collapse google/* files and break dependency names expected by grpcurl.
-  const s = wrapServerWithReflection(rawServer, { packageObject });
+  const s = wrapper(rawServer, { packageObject });
 
   // Helper to get service definition object from loaded package by FQ name
   function getServiceDef(fullServiceName: string): any | null {

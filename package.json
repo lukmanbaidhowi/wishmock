@@ -2,7 +2,7 @@
   "name": "wishmock",
   "type": "module",
   "description": "gRPC and connect RPC mock server with hot reload, and rule-based responses",
-  "version": "0.9.5",
+  "version": "0.9.6",
   "license": "MIT",
   "keywords": [
     "grpc",
@@ -52,12 +52,11 @@
     "@connectrpc/connect-node": "^2.1.1",
     "@grpc/grpc-js": "^1.14.1",
     "@grpc/proto-loader": "^0.8.0",
-    "@modelcontextprotocol/sdk": "^1.21.1",
+    "@modelcontextprotocol/sdk": "^1.25.1",
     "chokidar": "^3.6.0",
     "express": "^4.21.2",
     "grpc-node-server-reflection": "^1.0.2",
-    "js-yaml": "^4.1.0",
-    "lodash.get": "^4.4.2",
+    "js-yaml": "^4.1.1",
     "multer": "^2.0.2",
     "protobufjs": "^7.5.4"
   },
@@ -65,7 +64,9 @@
     "tar": "^7.5.2",
     "brace-expansion": "^2.0.2",
     "tmp": "^0.2.4",
-    "taffydb": "npm:noop-package@^1.0.0"
+    "taffydb": "npm:noop-package@^1.0.0",
+    "glob": "^11.0.1",
+    "body-parser": "^2.2.1"
   },
   "devDependencies": {
     "typescript": "^5.9.3",
@@ -111,7 +112,7 @@
     "test:connect:node": "RUNNER=node bash scripts/test-connect-integration.sh",
     "test:connect:bun": "RUNNER=bun bash scripts/test-connect-integration.sh",
     "benchmark": "BENCHMARK=true bun test tests/performance.benchmark.test.ts --run",
-    "benchmark:node": "BENCHMARK=true node --test tests/performance.benchmark.test.ts",
+    "benchmark:node": "BENCHMARK=true npx -y tsx --test tests/performance.benchmark.test.ts",
     "profile:handler": "bun run build && node scripts/profile-shared-handler.mjs",
     "profile:handler:comprehensive": "bun run build && node scripts/profile-shared-handler-comprehensive.mjs",
     "validation:e2e:protovalidate": "bash scripts/test-protovalidate-official-e2e.sh",

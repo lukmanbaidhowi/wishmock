@@ -2,7 +2,7 @@
   "name": "wishmock",
   "type": "module",
   "description": "gRPC and connect RPC mock server with hot reload, and rule-based responses",
-  "version": "0.9.6",
+  "version": "0.9.7",
   "license": "MIT",
   "keywords": [
     "grpc",

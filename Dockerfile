@@ -16,8 +16,7 @@ COPY types ./types
 
 # Copy protos and required scripts for descriptor generation
 COPY protos ./protos
-COPY scripts/generate-descriptor-set.sh ./scripts/generate-descriptor-set.sh
-COPY scripts/get-loadable-protos.mjs ./scripts/get-loadable-protos.mjs
+COPY scripts/generate-descriptors.mjs ./scripts/generate-descriptors.mjs
 
 # Install protoc and bash for descriptor generation
 RUN apk add --no-cache protobuf bash
@@ -50,8 +49,7 @@ COPY docs ./docs
 COPY protos ./protos
 COPY rules ./rules
 # Only copy scripts needed for hot-reload descriptor generation
-COPY scripts/generate-descriptor-set.sh ./scripts/generate-descriptor-set.sh
-COPY scripts/get-loadable-protos.mjs ./scripts/get-loadable-protos.mjs
+COPY scripts/generate-descriptors.mjs ./scripts/generate-descriptors.mjs
 
 # Copy pre-generated descriptor set from builder
 COPY --from=builder /app/bin/.descriptors.bin ./bin/.descriptors.bin

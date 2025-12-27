@@ -2,13 +2,17 @@
 # Rule for BufMessageCelCheck - message-level CEL validation test
 # This method tests message-level CEL constraints (min_value < max_value)
 
-# Default response for valid requests
-- when:
-    request:
-      min_value:
-        $exists: true
-      max_value:
-        $exists: true
-  response:
-    message: "CEL validation passed"
-  priority: 1
+match:
+  request: {}
+responses:
+  # Default response for valid requests
+  - when:
+      request.min_value: { exists: true }
+      request.max_value: { exists: true }
+    body:
+      message: "CEL validation passed"
+    priority: 1
+  # Fallback
+  - body:
+      message: "CEL validation passed"
+

@@ -51,7 +51,7 @@ This causes tools like `grpcurl` to fail with "malformed descriptor" errors when
 
 ### 1. Descriptor Generation Script
 
-Location: `scripts/generate-descriptor-set.sh`
+Location: `scripts/generate-descriptors.mjs`
 
 **Design:** Blend of runtime-aware discovery and full dependency coverage.
 
@@ -244,9 +244,9 @@ grpcurl -plaintext -d '{"ts":"2024-01-01T00:00:00Z"}' \
 [wishmock] (warn) Descriptor generation script not found
 ```
 
-**Solution**: Ensure `scripts/generate-descriptor-set.sh` exists and is executable:
+**Solution**: Ensure `scripts/generate-descriptors.mjs` exists and is executable:
 ```bash
-chmod +x scripts/generate-descriptor-set.sh
+chmod +x scripts/generate-descriptors.mjs
 ```
 
 ### Protoc Not Available
@@ -282,7 +282,7 @@ bun run descriptors:generate
 ## Files Modified
 
 ### New Files
-- `scripts/generate-descriptor-set.sh` - Descriptor generation script
+- `scripts/generate-descriptors.mjs` - Descriptor generation script
 - `bin/.descriptors.bin` - Generated descriptor set (gitignored)
 - `docker-build-test.sh` - Docker build verification script
 

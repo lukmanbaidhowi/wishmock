@@ -1,4 +1,4 @@
-# VCS
+# Version control
 .git
 .gitignore
 .github
@@ -41,8 +41,8 @@ tmp
 # Dev-only scripts (only specific scripts are copied)
 scripts/*.mjs
 scripts/*.sh
-!scripts/generate-descriptor-set.sh
-!scripts/get-loadable-protos.mjs
+
+!scripts/generate-descriptors.mjs
 
 # Dev-only docs (not needed at runtime)
 AGENTS.md

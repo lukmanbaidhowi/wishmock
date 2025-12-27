@@ -1,7 +1,7 @@
 ###########
 # Builder #
 ###########
-FROM oven/bun:1.2.20-alpine AS builder
+FROM oven/bun:1.3.5-alpine AS builder
 WORKDIR /app
 
 # Install deps (incl. dev) to build
@@ -28,7 +28,7 @@ RUN bun run build && bun run descriptors:generate
 ############
 # Runtime  #
 ############
-FROM oven/bun:1.2.20-alpine AS runner
+FROM oven/bun:1.3.5-alpine AS runner
 WORKDIR /app
 
 # Set environment for container networking

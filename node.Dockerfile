@@ -1,7 +1,7 @@
 ###########
 # Builder #
 ###########
-FROM oven/bun:1.2.20-alpine AS builder
+FROM oven/bun:1.3.5-alpine AS builder
 WORKDIR /app
 
 COPY bun.lock package.json ./

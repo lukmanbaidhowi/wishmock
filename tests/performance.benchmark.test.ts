@@ -9,7 +9,7 @@
  * Skip by default in `bun test`. Set BENCHMARK=true to enable.
  */
 
-import { describe, test, expect, beforeAll, afterAll } from "bun:test";
+import { describe, test, expect, beforeAll, afterAll } from "./test-adapter.js";
 import { createConnectServer, type ConnectServer } from "../src/infrastructure/connectServer.js";
 import { createGrpcServer } from "../src/infrastructure/grpcServer.js";
 import protobuf from "protobufjs";
@@ -63,7 +63,7 @@ describeBenchmark("Performance Benchmarks", () => {
 
     // Load proto files
     const helloworldProto = path.join(process.cwd(), "protos", "helloworld.proto");
-    
+
     protoRoot = new protobuf.Root();
     protoRoot.resolvePath = (origin: string, target: string) => {
       if (target.startsWith("validate/") || target.startsWith("buf/") || target.startsWith("google/")) {
@@ -71,13 +71,13 @@ describeBenchmark("Performance Benchmarks", () => {
       }
       return target;
     };
-    
+
     await protoRoot.load(helloworldProto, { keepCase: true });
 
     // Load rule files
     rulesIndex = new Map();
     const rulesDir = path.join(process.cwd(), "rules", "grpc");
-    
+
     const sayHelloRulePath = path.join(rulesDir, "helloworld.greeter.sayhello.yaml");
     if (fs.existsSync(sayHelloRulePath)) {
       const sayHelloRule = yaml.load(fs.readFileSync(sayHelloRulePath, "utf8")) as RuleDoc;
@@ -92,8 +92,8 @@ describeBenchmark("Performance Benchmarks", () => {
         corsOrigins: ["*"],
         protoRoot,
         rulesIndex,
-        logger: () => {}, // Silent logger for benchmarks
-        errorLogger: () => {},
+        logger: () => { }, // Silent logger for benchmarks
+        errorLogger: () => { },
       });
       await connectServer.start();
       console.log(`Connect server started on port ${connectPort}`);
@@ -106,13 +106,13 @@ describeBenchmark("Performance Benchmarks", () => {
       const { server } = await createGrpcServer(
         protoRoot,
         rulesIndex,
-        () => {}, // Silent logger for benchmarks
-        () => {}, // Silent error logger
+        () => { }, // Silent logger for benchmarks
+        () => { }, // Silent error logger
         { protoDir: path.join(process.cwd(), "protos") }
       );
-      
+
       grpcServer = server;
-      
+
       await new Promise<void>((resolve, reject) => {
         grpcServer!.bindAsync(
           `0.0.0.0:${grpcPort}`,
@@ -124,7 +124,7 @@ describeBenchmark("Performance Benchmarks", () => {
           }
         );
       });
-      
+
       console.log(`gRPC server started on port ${grpcPort}`);
     } catch (error) {
       console.error("Failed to start gRPC server:", error);
@@ -140,11 +140,11 @@ describeBenchmark("Performance Benchmarks", () => {
     console.log("\n" + "=".repeat(80));
     console.log("PERFORMANCE BENCHMARK RESULTS");
     console.log("=".repeat(80));
-    
+
     printResultsByCategory("Throughput", "req/s");
     printResultsByCategory("Latency", "ms");
     printResultsByCategory("Memory", "MB");
-    
+
     console.log("=".repeat(80) + "\n");
 
     // Cleanup
@@ -164,7 +164,7 @@ describeBenchmark("Performance Benchmarks", () => {
 
     console.log(`\n${category} (${unit}):`);
     console.log("-".repeat(80));
-    
+
     for (const result of categoryResults) {
       const concurrency = result.concurrency ? ` [concurrency: ${result.concurrency}]` : "";
       console.log(`  ${result.protocol.padEnd(20)} ${result.metric.padEnd(30)} ${result.value.toFixed(2).padStart(10)} ${unit}${concurrency}`);
@@ -191,7 +191,7 @@ describeBenchmark("Performance Benchmarks", () => {
     if (grpcServer) {
       const HelloRequest = protoRoot.lookupType("helloworld.HelloRequest");
       const HelloReply = protoRoot.lookupType("helloworld.HelloReply");
-      
+
       const client = new grpc.Client(
         `localhost:${grpcPort}`,
         grpc.credentials.createInsecure()
@@ -225,7 +225,7 @@ describeBenchmark("Performance Benchmarks", () => {
   function calculateLatencyStats(latencies: number[]): LatencyStats {
     const sorted = [...latencies].sort((a, b) => a - b);
     const sum = sorted.reduce((a, b) => a + b, 0);
-    
+
     return {
       min: sorted[0],
       max: sorted[sorted.length - 1],
@@ -317,7 +317,7 @@ describeBenchmark("Performance Benchmarks", () => {
 
       const HelloRequest = protoRoot.lookupType("helloworld.HelloRequest");
       const HelloReply = protoRoot.lookupType("helloworld.HelloReply");
-      
+
       const client = new grpc.Client(
         `localhost:${grpcPort}`,
         grpc.credentials.createInsecure()
@@ -436,7 +436,7 @@ describeBenchmark("Performance Benchmarks", () => {
 
       const HelloRequest = protoRoot.lookupType("helloworld.HelloRequest");
       const HelloReply = protoRoot.lookupType("helloworld.HelloReply");
-      
+
       const client = new grpc.Client(
         `localhost:${grpcPort}`,
         grpc.credentials.createInsecure()
@@ -505,7 +505,7 @@ describeBenchmark("Performance Benchmarks", () => {
         }
 
         await Promise.all(connectionPromises);
-        
+
         const duration = (Date.now() - startTime) / 1000;
         const throughput = (requestsPerConnection * concurrency) / duration;
         const endMemory = process.memoryUsage().heapUsed / 1024 / 1024;
@@ -539,7 +539,7 @@ describeBenchmark("Performance Benchmarks", () => {
 
         const HelloRequest = protoRoot.lookupType("helloworld.HelloRequest");
         const HelloReply = protoRoot.lookupType("helloworld.HelloReply");
-        
+
         const requestsPerConnection = Math.floor(BENCHMARK_REQUESTS / concurrency);
         const startMemory = process.memoryUsage().heapUsed / 1024 / 1024;
         const startTime = Date.now();
@@ -575,7 +575,7 @@ describeBenchmark("Performance Benchmarks", () => {
         }
 
         await Promise.all(connectionPromises);
-        
+
         const duration = (Date.now() - startTime) / 1000;
         const throughput = (requestsPerConnection * concurrency) / duration;
         const endMemory = process.memoryUsage().heapUsed / 1024 / 1024;
@@ -607,7 +607,7 @@ describeBenchmark("Performance Benchmarks", () => {
     test("should generate comparison report", () => {
       // This test just ensures we have collected results
       expect(results.length).toBeGreaterThan(0);
-      
+
       // Calculate relative performance
       const connectThroughput = results.find(
         r => r.protocol === "Connect (JSON)" && r.metric === "Throughput"

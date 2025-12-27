@@ -91,28 +91,47 @@ Examples:
 ## Basic Rule Structure
 
 ```yaml
-# Simple response
-- response:
-    message: "Hello World"
+match:
+  request: {}
+responses:
+  # Simple response
+  - body:
+      message: "Hello World"
+  
+  # Conditional response
+  - when:
+      request.name: "Alice"
+    body:
+      message: "Hello Alice!"
+  
+  # Template response
+  - body:
+      message: "Hello {{request.name}}!"
+  
+  # Error response
+  - when:
+      request.name: "error"
+    error:
+      code: 3  # INVALID_ARGUMENT
+      message: "Invalid name"
+```
 
-# Conditional response
-- when:
-    request:
-      name: "Alice"
-  response:
-    message: "Hello Alice!"
+**Field Access Syntax:**
 
-# Template response
-- response:
-    message: "Hello {{request.name}}!"
+In `match` block (nested):
+```yaml
+match:
+  metadata:
+    role: "admin"  # No prefix
+  request:
+    user.age: 18  # Dot notation for nested
+```
 
-# Error response
-- when:
-    request:
-      name: "error"
-  error:
-    code: 3  # INVALID_ARGUMENT
-    message: "Invalid name"
+In `when` block (flat):
+```yaml
+when:
+  metadata.role: "admin"  # With prefix
+  request.user.age: 18  # With prefix
 ```
 
 ## Testing Commands
@@ -198,18 +217,19 @@ curl http://localhost:4319/readiness
 ## Streaming Rules
 
 ```yaml
-# Server streaming
-- response:
-    stream:
+match:
+  request: {}
+responses:
+  # Server streaming
+  - stream_items:
       - message: "First"
         delay_ms: 100
       - message: "Second"
         delay_ms: 100
       - message: "Third"
-
-# Infinite loop
-- response:
-    stream:
+  
+  # Infinite loop
+  - stream_items:
       - message: "Tick"
         delay_ms: 1000
     loop: true
@@ -242,50 +262,60 @@ VALIDATION_ENABLED=true wishmock
 
 ### Match by metadata
 ```yaml
-- when:
-    metadata:
-      authorization: "Bearer token123"
-  response:
-    status: "authenticated"
+match:
+  request: {}
+responses:
+  - when:
+      metadata.authorization: "Bearer token123"
+    body:
+      status: "authenticated"
 ```
 
 ### Match by nested field
 ```yaml
-- when:
-    request:
-      user.id: 123
-  response:
-    name: "John Doe"
+match:
+  request: {}
+responses:
+  - when:
+      request.user.id: 123
+    body:
+      name: "John Doe"
 ```
 
 ### Multiple conditions
 ```yaml
-- when:
-    request:
-      status: "active"
-      role: "admin"
-  response:
-    access: "granted"
+match:
+  request: {}
+responses:
+  - when:
+      request.status: "active"
+      request.role: "admin"
+    body:
+      access: "granted"
 ```
 
 ### Array contains
 ```yaml
-- when:
-    request:
-      tags:
-        $contains: "premium"
-  response:
-    discount: 20
+match:
+  request: {}
+responses:
+  - when:
+      request.tags:
+        contains: "premium"
+    body:
+      discount: 20
 ```
 
 ### Regex match
 ```yaml
-- when:
-    request:
-      email:
-        $regex: ".*@example\\.com$"
-  response:
-    domain: "example.com"
+match:
+  request: {}
+responses:
+  - when:
+      request.email:
+        regex: ".*@example\\.com$"
+    body:
+      domain: "example.com"
 ```
 
 ## Troubleshooting

@@ -64,10 +64,10 @@ export async function handleUnaryRequest(
 
     // Step 2: Match rule
     const rule = rulesIndex.get(ruleKey);
-    
+
     // Track rule match attempt
     sharedMetrics.recordRuleMatchAttempt(ruleKey, !!rule);
-    
+
     if (!rule) {
       logger(`[shared] ${service}/${method} - no rule matched`);
       return {
@@ -87,13 +87,13 @@ export async function handleUnaryRequest(
     if (trailers) {
       const statusRaw = trailers["grpc-status"];
       const status = typeof statusRaw === "number" ? statusRaw : Number(statusRaw ?? 0);
-      
+
       if (status && status !== 0) {
         const message = String(trailers["grpc-message"] ?? "mock error");
         const code = grpcStatusToCode(status);
-        
+
         logger(`[shared] ${service}/${method} - returning error: ${code}`);
-        
+
         return {
           code,
           message,
@@ -103,14 +103,14 @@ export async function handleUnaryRequest(
 
     // Step 5: Return normalized response
     logger(`[shared] ${service}/${method} - returning success response`);
-    
+
     return {
       data: responseData,
       trailer: extractTrailers(trailers),
     };
   } catch (error: any) {
     logger(`[shared] ${service}/${method} - internal error:`, error?.message || error);
-    
+
     return {
       code: "INTERNAL",
       message: error?.message || "Internal error",
@@ -160,7 +160,7 @@ function validateRequest(
     if (!result.ok) {
       // Validation failed - track metrics for monitoring
       sharedMetrics.recordValidationCheck(typeName, false);
-      
+
       // Emit validation failure events for observability
       // These events can be consumed by monitoring systems
       try {
@@ -201,7 +201,7 @@ function validateRequest(
 
     // Validation passed - track success metrics
     sharedMetrics.recordValidationCheck(typeName, true);
-    
+
     // Emit validation success event for monitoring
     try {
       validationRuntime.emitValidationEvent({
@@ -294,6 +294,24 @@ function extractTrailers(
 }
 
 /**
+ * Fisher-Yates shuffle algorithm for truly random array shuffling
+ * 
+ * This is the standard algorithm for unbiased random permutation.
+ * Time complexity: O(n), Space complexity: O(n) for the copy
+ * 
+ * @param array Array to shuffle
+ * @returns New shuffled array (does not modify original)
+ */
+function fisherYatesShuffle<T>(array: T[]): T[] {
+  const shuffled = [...array];
+  for (let i = shuffled.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+  }
+  return shuffled;
+}
+
+/**
  * Handle server streaming request (single request, multiple responses)
  * 
  * This function:
@@ -328,10 +346,10 @@ export async function* handleServerStreamingRequest(
 
     // Step 2: Match rule
     const rule = rulesIndex.get(ruleKey);
-    
+
     // Track rule match attempt
     sharedMetrics.recordRuleMatchAttempt(ruleKey, !!rule);
-    
+
     if (!rule) {
       logger(`[shared] ${service}/${method} - no rule matched`);
       yield {
@@ -346,7 +364,7 @@ export async function* handleServerStreamingRequest(
     // Step 3: Select response and get streaming configuration
     // The selectResponse function evaluates the rule and returns the matched response option
     const selected = selectResponse(rule, data, metadata);
-    
+
     // Extract streaming configuration from the selected response option
     // stream_items: array of messages to stream (defaults to single body)
     // stream_delay_ms: delay between messages in milliseconds (default 100ms)
@@ -365,14 +383,14 @@ export async function* handleServerStreamingRequest(
     if (trailers) {
       const statusRaw = trailers["grpc-status"];
       const status = typeof statusRaw === "number" ? statusRaw : Number(statusRaw ?? 0);
-      
+
       // Non-zero status indicates an error
       if (status && status !== 0) {
         const message = String(trailers["grpc-message"] ?? "mock error");
         const code = grpcStatusToCode(status);
-        
+
         logger(`[shared] ${service}/${method} - returning error: ${code}`);
-        
+
         // Yield error and stop streaming
         yield {
           code,
@@ -388,19 +406,17 @@ export async function* handleServerStreamingRequest(
     }
 
     // Step 4: Stream responses
-    logger(`[shared] ${service}/${method} - streaming ${baseItems.length} items (loop: ${shouldLoop})`);
+    logger(`[shared] ${service}/${method} - streaming ${baseItems.length} items (loop: ${shouldLoop}, random: ${randomOrder})`);
 
     // Loop indefinitely if stream_loop is true, otherwise stream once
     do {
-      // Randomize order if configured (useful for testing order-independent clients)
-      const items = randomOrder ? [...baseItems].sort(() => Math.random() - 0.5) : baseItems;
+      // Randomize order using Fisher-Yates shuffle if configured
+      // This provides truly random ordering (unbiased permutation)
+      const items = randomOrder ? fisherYatesShuffle(baseItems) : baseItems;
 
       for (let i = 0; i < items.length; i++) {
-        // Re-select response with template context (index and total)
-        // This allows templates to use {{index}} and {{total}} variables
-        const templated = selectResponse(rule, data, metadata, i, items.length);
-        const templatedItems = templated?.stream_items ?? items;
-        const item = templatedItems[i] ?? templated?.body ?? items[i];
+        // Use the shuffled item directly
+        const item = items[i];
 
         // Yield the response message
         yield {
@@ -419,7 +435,7 @@ export async function* handleServerStreamingRequest(
     logger(`[shared] ${service}/${method} - streaming complete`);
   } catch (error: any) {
     logger(`[shared] ${service}/${method} - internal error:`, error?.message || error);
-    
+
     yield {
       code: "INTERNAL",
       message: error?.message || "Internal error",
@@ -510,10 +526,10 @@ export async function handleClientStreamingRequest(
 
     // Step 4: Match rule
     const rule = rulesIndex.get(ruleKey);
-    
+
     // Track rule match attempt
     sharedMetrics.recordRuleMatchAttempt(ruleKey, !!rule);
-    
+
     if (!rule) {
       logger(`[shared] ${service}/${method} - no rule matched`);
       return {
@@ -533,13 +549,13 @@ export async function handleClientStreamingRequest(
     if (trailers) {
       const statusRaw = trailers["grpc-status"];
       const status = typeof statusRaw === "number" ? statusRaw : Number(statusRaw ?? 0);
-      
+
       if (status && status !== 0) {
         const message = String(trailers["grpc-message"] ?? "mock error");
         const code = grpcStatusToCode(status);
-        
+
         logger(`[shared] ${service}/${method} - returning error: ${code}`);
-        
+
         return {
           code,
           message,
@@ -549,14 +565,14 @@ export async function handleClientStreamingRequest(
 
     // Step 7: Return normalized response
     logger(`[shared] ${service}/${method} - returning success response`);
-    
+
     return {
       data: responseData,
       trailer: extractTrailers(trailers),
     };
   } catch (error: any) {
     logger(`[shared] ${service}/${method} - internal error:`, error?.message || error);
-    
+
     return {
       code: "INTERNAL",
       message: error?.message || "Internal error",
@@ -641,10 +657,10 @@ export async function* handleBidiStreamingRequest(
 
     // Step 4: Match rule
     const rule = rulesIndex.get(ruleKey);
-    
+
     // Track rule match attempt
     sharedMetrics.recordRuleMatchAttempt(ruleKey, !!rule);
-    
+
     if (!rule) {
       logger(`[shared] ${service}/${method} - no rule matched`);
       yield {
@@ -669,13 +685,13 @@ export async function* handleBidiStreamingRequest(
     if (trailers) {
       const statusRaw = trailers["grpc-status"];
       const status = typeof statusRaw === "number" ? statusRaw : Number(statusRaw ?? 0);
-      
+
       if (status && status !== 0) {
         const message = String(trailers["grpc-message"] ?? "mock error");
         const code = grpcStatusToCode(status);
-        
+
         logger(`[shared] ${service}/${method} - returning error: ${code}`);
-        
+
         yield {
           code,
           message,
@@ -690,16 +706,14 @@ export async function* handleBidiStreamingRequest(
     }
 
     // Step 6: Stream responses
-    logger(`[shared] ${service}/${method} - streaming ${baseItems.length} items (loop: ${shouldLoop})`);
+    logger(`[shared] ${service}/${method} - streaming ${baseItems.length} items (loop: ${shouldLoop}, random: ${randomOrder})`);
 
     do {
-      const items = randomOrder ? [...baseItems].sort(() => Math.random() - 0.5) : baseItems;
+      const items = randomOrder ? fisherYatesShuffle(baseItems) : baseItems;
 
       for (let i = 0; i < items.length; i++) {
-        // Re-select response with template context (index and total)
-        const templated = selectResponse(rule, aggregatedRequest, metadata, i, items.length);
-        const templatedItems = templated?.stream_items ?? items;
-        const item = templatedItems[i] ?? templated?.body ?? items[i];
+        // Use the shuffled item directly
+        const item = items[i];
 
         yield {
           data: item,
@@ -716,7 +730,7 @@ export async function* handleBidiStreamingRequest(
     logger(`[shared] ${service}/${method} - streaming complete`);
   } catch (error: any) {
     logger(`[shared] ${service}/${method} - internal error:`, error?.message || error);
-    
+
     yield {
       code: "INTERNAL",
       message: error?.message || "Internal error",

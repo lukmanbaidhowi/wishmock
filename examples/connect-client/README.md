@@ -32,20 +32,19 @@ Create rule files in `rules/grpc/` to define mock responses. For example:
 
 ```yaml
 # rules/grpc/helloworld.greeter.sayhello.yaml
-- when:
-    metadata: {}
-    request: {}
-  response:
-    message: "Hello from Wishmock!"
+match:
+  request: {}
+responses:
+  - body:
+      message: "Hello from Wishmock!"
 ```
 
 ```yaml
 # rules/grpc/streaming.streamservice.getmessages.yaml
-- when:
-    metadata: {}
-    request: {}
-  response:
-    stream:
+match:
+  request: {}
+responses:
+  - stream_items:
       - id: "msg1"
         content: "First message"
         timestamp: 1234567890

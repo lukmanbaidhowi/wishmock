@@ -755,6 +755,33 @@ For complete documentation including streaming examples, error handling, client 
 See `docs/rule-examples.md` for complete YAML samples, metadata matching patterns, and gRPC error simulations. The examples in that document back the quick-start walkthroughs referenced throughout this README.
 
 ## Matching & Operators
+
+**Field Access Syntax:**
+
+There are two different syntaxes depending on where you're matching:
+
+**In `match` block** (nested object with dot-notation keys):
+```yaml
+match:
+  metadata:
+    authorization: "Bearer token"  # Access: match.metadata["authorization"]
+  request:
+    user.age: { gte: 18 }  # Access: match.request["user.age"] (key contains dot)
+```
+
+**In `when` block** (flat dot notation):
+```yaml
+responses:
+  - when:
+      metadata.authorization: "Bearer token"  # Access: when["metadata.authorization"]
+      request.user.id: 123  # Access: when["request.user.id"]
+```
+
+**Key difference:**
+- `match`: Keys are direct properties (can contain dots as literal characters)
+- `when`: Keys use dot notation to navigate nested context
+
+**Matching Rules:**
 - Equality: default for literal values in `match` and `when`.
 - Metadata headers: use `match.metadata` or `when: { "metadata.<key>": ... }`.
 - Supported operator objects (instead of a literal value):

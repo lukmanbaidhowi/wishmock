@@ -98,6 +98,24 @@ export function respondUnary(
   }
 }
 
+/**
+ * Fisher-Yates shuffle algorithm for truly random array shuffling
+ * 
+ * This is the standard algorithm for unbiased random permutation.
+ * Time complexity: O(n), Space complexity: O(n) for the copy
+ * 
+ * @param array Array to shuffle
+ * @returns New shuffled array (does not modify original)
+ */
+function fisherYatesShuffle<T>(array: T[]): T[] {
+  const shuffled = [...array];
+  for (let i = shuffled.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+  }
+  return shuffled;
+}
+
 export async function streamItems(
   call: grpc.ServerWritableStream<any, any> | grpc.ServerDuplexStream<any, any>,
   rule: RuleDoc | undefined,
@@ -122,14 +140,17 @@ export async function streamItems(
 
     const sendItems = async () => {
       do {
-        const items = randomOrder ? [...baseItems].sort(() => Math.random() - 0.5) : baseItems;
+        const items = randomOrder ? fisherYatesShuffle(baseItems) : baseItems;
 
         for (let i = 0; i < items.length; i++) {
           if ((call as any).destroyed || (call as any).cancelled) return;
 
-          const templated = selectResponse(rule, reqObj, metadata, i, items.length);
-          const templatedItems = templated?.stream_items ?? items;
-          const item = templatedItems[i] ?? templated?.body ?? items[i];
+          // Apply templating to the current item (which is already shuffled if randomOrder=true)
+          // We pass the original baseItems.length as total for consistent template context
+          const templated = selectResponse(rule, reqObj, metadata, i, baseItems.length);
+
+          // Use the shuffled item directly, with templating applied if available
+          const item = items[i];
 
           const message = resType.fromObject(item as any);
           const buffer = resType.encode(message).finish();

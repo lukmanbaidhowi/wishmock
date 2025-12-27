@@ -532,7 +532,7 @@ The reload process ensures atomic updates across all servers:
 │     └─ Stop Connect RPC server                              │
 │                                                             │
 │  3. Regenerate Descriptors                                  │
-│     └─ Run generate-descriptor-set.sh for reflection        │
+│     └─ Run generate-descriptors.mjs for reflection          │
 │                                                             │
 │  4. Reload Protos                                           │
 │     ├─ Scan protos/ directory                               │

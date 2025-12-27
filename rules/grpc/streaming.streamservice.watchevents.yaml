@@ -1,42 +1,42 @@
 # Example rule for streaming.StreamService/WatchEvents
 # Copy this file to rules/grpc/ to use with the Connect client examples
 
-- when:
-    metadata: {}
-    request: {}
-  body:
-    stream:
-      - event_id: "evt1"
-        event_type: "notification"
-        data: '{"title":"New message","body":"You have a new message"}'
-        created_at: 1701878400
-      - event_id: "evt2"
-        event_type: "update"
-        data: '{"resource":"user","action":"updated"}'
-        created_at: 1701878401
-      - event_id: "evt3"
-        event_type: "alert"
-        data: '{"level":"info","message":"System maintenance scheduled"}'
-        created_at: 1701878402
-  priority: 1
+match:
+  request: {}
+responses:
+  # Rule for notifications topic
+  - when:
+      request.topic: "notifications"
+    body:
+      stream:
+        - event_id: "notif1"
+          event_type: "important"
+          data: '{"title":"Important Update","priority":"high"}'
+          created_at: 1701878400
+        - event_id: "notif2"
+          event_type: "urgent"
+          data: '{"title":"Urgent Action Required","priority":"critical"}'
+          created_at: 1701878401
+        - event_id: "notif3"
+          event_type: "important"
+          data: '{"title":"Security Alert","priority":"high"}'
+          created_at: 1701878402
+    priority: 2
 
-# Rule for notifications topic
-- when:
-    metadata: {}
-    request:
-      topic: "notifications"
-  body:
-    stream:
-      - event_id: "notif1"
-        event_type: "important"
-        data: '{"title":"Important Update","priority":"high"}'
-        created_at: 1701878400
-      - event_id: "notif2"
-        event_type: "urgent"
-        data: '{"title":"Urgent Action Required","priority":"critical"}'
-        created_at: 1701878401
-      - event_id: "notif3"
-        event_type: "important"
-        data: '{"title":"Security Alert","priority":"high"}'
-        created_at: 1701878402
-  priority: 2
+  # Default fallback
+  - body:
+      stream:
+        - event_id: "evt1"
+          event_type: "notification"
+          data: '{"title":"New message","body":"You have a new message"}'
+          created_at: 1701878400
+        - event_id: "evt2"
+          event_type: "update"
+          data: '{"resource":"user","action":"updated"}'
+          created_at: 1701878401
+        - event_id: "evt3"
+          event_type: "alert"
+          data: '{"level":"info","message":"System maintenance scheduled"}'
+          created_at: 1701878402
+    priority: 1
+

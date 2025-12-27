@@ -42,11 +42,8 @@ services:
     healthcheck:
       # Healthcheck using Node.js with a simple HTTP request.
       # Dynamically respect HTTP_PORT so custom admin port configs keep working.
-      test:
-        [
-          "CMD-SHELL",
-          'node -e "const http = require(''http''); const port = process.env.HTTP_PORT || ''3000''; const req = http.request({port, host:''127.0.0.1'', path:''/liveness'', timeout:2000}, res => process.exit(res.statusCode === 200 ? 0 : 1)); req.on(''error'', () => process.exit(1)); req.end();"',
-        ]
+      # Note: Using full path /nodejs/bin/node for distroless compatibility
+      test: [ "CMD", "/nodejs/bin/node", "-e", "const http = require('http'); const port = process.env.HTTP_PORT || '3000'; const req = http.request({port, host:'127.0.0.1', path:'/liveness', timeout:2000}, res => process.exit(res.statusCode === 200 ? 0 : 1)); req.on('error', () => process.exit(1)); req.end();" ]
       interval: 5s
       timeout: 2s
       retries: 10

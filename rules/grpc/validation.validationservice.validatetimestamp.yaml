@@ -1,5 +1,8 @@
-when:
-  - priority: 1
-body:
-  message: ok
+match:
+  request: {}
+responses:
+  - body:
+      message: ok
+    priority: 1
+
 

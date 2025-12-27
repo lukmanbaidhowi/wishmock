@@ -1,38 +1,33 @@
 # Example rule for helloworld.Greeter/SayHello
 # Copy this file to rules/grpc/ to use with the Connect client examples
 
-- when:
-    metadata: {}
-    request: {}
-  body:
-    message: "Hello from Wishmock Connect RPC!"
-  priority: 1
+match:
+  request: {}
+responses:
+  # Rule with validation fields - highest priority
+  - when:
+      request.name: "ValidUser123"
+      request.email: "user@example.com"
+      request.age: 25
+    body:
+      message: "Hello, ValidUser123! Your data passed validation."
+    priority: 3
 
-# Rule with name matching
-- when:
-    metadata: {}
-    request:
-      name: "World"
-  body:
-    message: "Hello, World! Welcome to Connect RPC."
-  priority: 2
+  # Rule with name matching for "World"
+  - when:
+      request.name: "World"
+    body:
+      message: "Hello, World! Welcome to Connect RPC."
+    priority: 2
 
-# Rule for NodeJS client
-- when:
-    metadata: {}
-    request:
-      name: "NodeJS"
-  body:
-    message: "Hello, NodeJS! You're using Connect RPC successfully."
-  priority: 2
+  # Rule for NodeJS client
+  - when:
+      request.name: "NodeJS"
+    body:
+      message: "Hello, NodeJS! You're using Connect RPC successfully."
+    priority: 2
 
-# Rule with validation fields
-- when:
-    metadata: {}
-    request:
-      name: "ValidUser123"
-      email: "user@example.com"
-      age: 25
-  body:
-    message: "Hello, ValidUser123! Your data passed validation."
-  priority: 3
+  # Default fallback rule (no when condition)
+  - body:
+      message: "Hello from Wishmock Connect RPC!"
+    priority: 1

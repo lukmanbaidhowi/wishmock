@@ -1,11 +1,29 @@
 # Example rule for streaming.StreamService/GetMessages
 # Copy this file to rules/grpc/ to use with the Connect client examples
 
-- when:
-    metadata: {}
-    request: {}
-  body:
-    stream:
+match:
+  request: {}
+responses:
+  # Rule for specific user
+  - when:
+      request.user_id: "user123"
+    stream_items:
+      - id: "msg_user123_1"
+        content: "Hello user123! Here are your messages."
+        timestamp: 1701878400
+        sender: "system"
+      - id: "msg_user123_2"
+        content: "You have 3 new notifications"
+        timestamp: 1701878401
+        sender: "system"
+      - id: "msg_user123_3"
+        content: "Your profile was updated"
+        timestamp: 1701878402
+        sender: "system"
+    priority: 2
+
+  # Default fallback
+  - stream_items:
       - id: "msg1"
         content: "Welcome to Connect RPC streaming!"
         timestamp: 1701878400
@@ -26,25 +44,5 @@
         content: "Stream completed successfully!"
         timestamp: 1701878404
         sender: "wishmock"
-  priority: 1
+    priority: 1
 
-# Rule for specific user
-- when:
-    metadata: {}
-    request:
-      user_id: "user123"
-  body:
-    stream:
-      - id: "msg_user123_1"
-        content: "Hello user123! Here are your messages."
-        timestamp: 1701878400
-        sender: "system"
-      - id: "msg_user123_2"
-        content: "You have 3 new notifications"
-        timestamp: 1701878401
-        sender: "system"
-      - id: "msg_user123_3"
-        content: "Your profile was updated"
-        timestamp: 1701878402
-        sender: "system"
-  priority: 2

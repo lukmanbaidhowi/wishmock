@@ -78,26 +78,36 @@ async function regenerateDescriptors() {
       log("Reflection descriptor regeneration disabled by env (REFLECTION_DISABLE_REGEN)");
       return;
     }
-    // Locate the descriptor generation script either in the current working directory
-    // or bundled within the installed package (published with files: ["scripts/"])
-    const localScriptPath = path.resolve("scripts/generate-descriptor-set.sh");
+    // Locate the descriptor generation script
+    const localScriptPath = path.resolve("scripts/generate-descriptors.mjs");
     const moduleDir = path.dirname(fileURLToPath(import.meta.url));
-    const packageScriptPath = path.resolve(moduleDir, "../scripts/generate-descriptor-set.sh");
+    const packageScriptPath = path.resolve(moduleDir, "../scripts/generate-descriptors.mjs");
     const scriptPath = fs.existsSync(localScriptPath)
       ? localScriptPath
       : (fs.existsSync(packageScriptPath) ? packageScriptPath : "");
     if (!scriptPath) throw new Error("Descriptor generation script not found");
-    
+
     const descriptorPath = path.resolve('bin/.descriptors.bin');
-    
+
     // Skip if descriptor exists and is up-to-date (optimization for Docker pre-baked descriptors)
     // Only regenerate if proto files are newer than descriptor
     if (fs.existsSync(descriptorPath)) {
       const descriptorTime = fs.statSync(descriptorPath).mtimeMs;
-      const protoFiles = fs.readdirSync(PROTO_DIR)
-        .filter(f => f.endsWith('.proto'))
-        .map(f => path.join(PROTO_DIR, f));
-      
+      // Simple recursive find for proto files
+      const findProtos = (dir: string): string[] => {
+        let results: string[] = [];
+        if (!fs.existsSync(dir)) return results;
+        const list = fs.readdirSync(dir);
+        for (const file of list) {
+          const filePath = path.join(dir, file);
+          const stat = fs.statSync(filePath);
+          if (stat && stat.isDirectory()) results = results.concat(findProtos(filePath));
+          else if (file.endsWith('.proto')) results.push(filePath);
+        }
+        return results;
+      }
+      const protoFiles = findProtos(PROTO_DIR);
+
       const hasNewerProto = protoFiles.some(f => {
         try {
           return fs.statSync(f).mtimeMs > descriptorTime;
@@ -105,15 +115,17 @@ async function regenerateDescriptors() {
           return false; // Skip files that can't be stat'd
         }
       });
-      
+
       if (!hasNewerProto) {
         log("✓ Reflection descriptor up-to-date");
         return; // Skip regeneration
       }
     }
-    
+
     log("Regenerating reflection descriptors...");
-    execSync(`bash "${scriptPath}"`, { stdio: 'pipe' });
+    // Use node to execute the mjs script
+    const { execFileSync } = await import("child_process");
+    execFileSync(process.execPath, [scriptPath], { stdio: 'pipe' });
     log("✓ Reflection descriptors regenerated");
   } catch (e: any) {
     err("Failed to regenerate descriptors:", e?.message || e);
@@ -144,21 +156,21 @@ async function regenerateDescriptors() {
  */
 async function initializeServers() {
   log("Initializing servers with shared state...");
-  
+
   // Step 1: Load protos (shared state)
   // This creates a single protobuf.Root instance that both servers will use
   log("Loading protobuf definitions...");
   const { root, report } = await loadProtos(PROTO_DIR);
   protoReport = report;
   currentRoot = root;
-  
+
   const loaded = report.filter(r => r.status === "loaded").map(r => r.file);
   const skipped = report.filter(r => r.status === "skipped");
   if (loaded.length) log(`Loaded protos: ${loaded.join(", ")}`);
   if (skipped.length) {
     for (const s of skipped) err(`Skipped proto: ${s.file} (${s.error || "unknown error"})`);
   }
-  
+
   // Step 2: Load rules (shared state)
   // Rules are loaded from YAML/JSON files in the rules directory
   // Both servers will use this same rulesIndex Map instance
@@ -167,7 +179,7 @@ async function initializeServers() {
   rulesIndex.clear();
   for (const [k, v] of fresh.entries()) rulesIndex.set(k, v);
   log(`Loaded ${rulesIndex.size} rules`);
-  
+
   // Step 3: Initialize validation runtime (shared state)
   // The validation runtime extracts protovalidate/PGV constraints from the proto files
   // Both servers will use this same validation runtime instance
@@ -178,7 +190,7 @@ async function initializeServers() {
   } catch (e) {
     err('Validation runtime load failed', e);
   }
-  
+
   // Step 4: Shutdown existing servers if any
   // This is important for reload scenarios where we need to stop old servers
   // before starting new ones with updated state
@@ -186,10 +198,10 @@ async function initializeServers() {
     log("Stopping existing servers...");
     await shutdownServers();
   }
-  
+
   // Step 5: Start native gRPC server (plaintext)
   log("Starting native gRPC server...");
-  
+
   // Build a server instance (handlers) once to capture services meta
   // Exclude validation_examples.proto from proto-loader due to map field limitations.
   // It's still loaded via protobufjs, so validation rules work; reflection uses protoc descriptors.
@@ -255,17 +267,17 @@ async function initializeServers() {
   if (CONNECT_ENABLED) {
     try {
       log("Starting Connect RPC server...");
-      
+
       // Prepare TLS configuration if enabled
       const tlsConfig = CONNECT_TLS_ENABLED && CONNECT_TLS_CERT_PATH && CONNECT_TLS_KEY_PATH
         ? {
-            enabled: true,
-            keyPath: CONNECT_TLS_KEY_PATH,
-            certPath: CONNECT_TLS_CERT_PATH,
-            caPath: CONNECT_TLS_CA_PATH || undefined,
-          }
+          enabled: true,
+          keyPath: CONNECT_TLS_KEY_PATH,
+          certPath: CONNECT_TLS_CERT_PATH,
+          caPath: CONNECT_TLS_CA_PATH || undefined,
+        }
         : undefined;
-      
+
       // Create Connect server with shared protoRoot and rulesIndex
       connectServer = await createConnectServer({
         port: CONNECT_PORT,
@@ -279,10 +291,10 @@ async function initializeServers() {
         errorLogger: err,
         tls: tlsConfig,
       });
-      
+
       // Start the server
       await connectServer.start();
-      
+
       connectEnabled = true;
       const serviceCount = connectServer.getServices().size;
       log(`Connect RPC server started successfully with ${serviceCount} services`);
@@ -297,10 +309,10 @@ async function initializeServers() {
 
   // Notify cluster master (if any) that this worker is ready (only once)
   if (!signalledReady) {
-    try { (process as any).send?.({ type: 'ready' }); } catch {}
+    try { (process as any).send?.({ type: 'ready' }); } catch { }
     signalledReady = true;
   }
-  
+
   log("Server initialization complete");
 }
 
@@ -336,42 +348,42 @@ async function reloadServers(reason: string) {
   rebuildInProgress = true;
   const start = Date.now();
   log(`[reload] ⏳ Coordinated reload start (reason: ${reason}) — readiness=not_ready`);
-  
+
   lastReloadTimestamp = new Date();
   if (reason.includes('cluster') || process.env.START_CLUSTER) {
     lastReloadMode = 'cluster';
   } else if (reason.includes('watch')) {
     lastReloadMode = 'bun-watch';
   }
-  
+
   try {
     // Step 1: Stop both servers gracefully using coordinated shutdown
     await shutdownServers();
-    
+
     // Step 2: Reload protos and rules
     log(`[reload] Reloading protos and rules...`);
-    
+
     // Regenerate descriptor set for reflection hot reload
     await regenerateDescriptors();
-    
+
     // Load protos (creates new shared protoRoot)
     const { root, report } = await loadProtos(PROTO_DIR);
     protoReport = report;
     currentRoot = root;
-    
+
     const loaded = report.filter(r => r.status === "loaded").map(r => r.file);
     const skipped = report.filter(r => r.status === "skipped");
     if (loaded.length) log(`[reload] Loaded protos: ${loaded.join(", ")}`);
     if (skipped.length) {
       for (const s of skipped) err(`[reload] Skipped proto: ${s.file} (${s.error || "unknown error"})`);
     }
-    
+
     // Load rules (updates shared rulesIndex)
     const fresh = loadRulesFromDisk(RULE_DIR);
     rulesIndex.clear();
     for (const [k, v] of fresh.entries()) rulesIndex.set(k, v);
     log(`[reload] Loaded ${rulesIndex.size} rules`);
-    
+
     // Initialize validation runtime with new protoRoot
     try {
       validationRuntime.loadFromRoot(root);
@@ -379,10 +391,10 @@ async function reloadServers(reason: string) {
     } catch (e) {
       err('[reload] Validation runtime load failed', e);
     }
-    
+
     // Step 3: Restart both servers with new shared state
     log(`[reload] Restarting servers with new state...`);
-    
+
     // Start native gRPC server (plaintext)
     const entryFiles = protoReport
       .filter(r => r.status === "loaded")
@@ -442,16 +454,16 @@ async function reloadServers(reason: string) {
     if (CONNECT_ENABLED) {
       try {
         log("[reload] Starting Connect RPC server...");
-        
+
         const tlsConfig = CONNECT_TLS_ENABLED && CONNECT_TLS_CERT_PATH && CONNECT_TLS_KEY_PATH
           ? {
-              enabled: true,
-              keyPath: CONNECT_TLS_KEY_PATH,
-              certPath: CONNECT_TLS_CERT_PATH,
-              caPath: CONNECT_TLS_CA_PATH || undefined,
-            }
+            enabled: true,
+            keyPath: CONNECT_TLS_KEY_PATH,
+            certPath: CONNECT_TLS_CERT_PATH,
+            caPath: CONNECT_TLS_CA_PATH || undefined,
+          }
           : undefined;
-        
+
         connectServer = await createConnectServer({
           port: CONNECT_PORT,
           corsEnabled: CONNECT_CORS_ENABLED,
@@ -464,9 +476,9 @@ async function reloadServers(reason: string) {
           errorLogger: err,
           tls: tlsConfig,
         });
-        
+
         await connectServer.start();
-        
+
         connectEnabled = true;
         const serviceCount = connectServer.getServices().size;
         log(`[reload] Connect RPC server started successfully with ${serviceCount} services`);
@@ -476,10 +488,10 @@ async function reloadServers(reason: string) {
         err("[reload] Continuing with native gRPC only");
       }
     }
-    
+
     const dur = Date.now() - start;
     log(`[reload] ✅ Coordinated reload complete in ${dur}ms (reason: ${reason}) — readiness=ready`);
-    
+
     reloadDowntimeDetected = dur > 1000;
   } catch (e: any) {
     const dur = Date.now() - start;
@@ -520,11 +532,11 @@ async function reloadServers(reason: string) {
  */
 async function shutdownServers(): Promise<void> {
   log('[shutdown] Starting coordinated shutdown...');
-  
+
   // Track errors but don't throw - we want to attempt shutdown of all servers
   // even if some fail
   const errors: string[] = [];
-  
+
   // Helper to shutdown a gRPC server gracefully
   const shutdownGrpcServer = async (
     server: grpc.Server | null,
@@ -534,7 +546,7 @@ async function shutdownServers(): Promise<void> {
       log(`[shutdown] ${name} already stopped`);
       return;
     }
-    
+
     try {
       log(`[shutdown] Stopping ${name}...`);
       await new Promise<void>((resolve, reject) => {
@@ -553,15 +565,15 @@ async function shutdownServers(): Promise<void> {
       errors.push(errorMsg);
     }
   };
-  
+
   // Shutdown plaintext gRPC server
   await shutdownGrpcServer(serverPlain, 'gRPC server (plaintext)');
   serverPlain = null;
-  
+
   // Shutdown TLS gRPC server
   await shutdownGrpcServer(serverTls, 'gRPC server (TLS)');
   serverTls = null;
-  
+
   // Shutdown Connect RPC server
   if (connectServer) {
     try {
@@ -577,11 +589,11 @@ async function shutdownServers(): Promise<void> {
   } else {
     log('[shutdown] Connect RPC server already stopped');
   }
-  
+
   // Clear state
   connectEnabled = false;
   tlsEnabled = false;
-  
+
   // Report final status
   if (errors.length > 0) {
     err(`[shutdown] ⚠ Shutdown completed with ${errors.length} error(s):`);

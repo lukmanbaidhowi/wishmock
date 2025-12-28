@@ -68,6 +68,32 @@ responses:
     priority: 0
 ```
 
+## Streaming Rules
+
+Wishmock supports powerful streaming features including loops, delays, and random ordering.
+
+```yaml
+match:
+  request:
+    topic: { exists: true }
+responses:
+  - when:
+      request.topic: "stock_prices"
+    stream_items:
+      - event_id: "AAPL_001"
+        price: 150.25
+      - event_id: "GOOGL_001"
+        price: 2750.80
+      - event_id: "MSFT_001"
+        price: 310.15
+    stream_delay_ms: 500      # 500ms delay between items
+    stream_loop: true         # Repeat the stream indefinitely
+    stream_random_order: true # Randomized order of items in each loop
+    trailers:
+      grpc-status: "0"
+    priority: 10
+```
+
 ## Error Simulation Examples
 
 The file `rules/grpc/calendar.events.getevent.yaml` demonstrates a range of gRPC errors keyed by `request.id` values:

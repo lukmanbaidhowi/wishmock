@@ -7,6 +7,11 @@ service StreamService {
   
   // Server streaming: returns multiple events
   rpc WatchEvents (EventRequest) returns (stream EventResponse);
+  // Client streaming: accepts multiple messages, returns summary
+  rpc UploadMessages (stream UploadRequest) returns (UploadSummary);
+
+  // Bidirectional streaming: chat
+  rpc Chat (stream ChatRequest) returns (stream ChatResponse);
 }
 
 message MessageRequest {
@@ -31,4 +36,21 @@ message EventResponse {
   string event_type = 2;
   string data = 3;
   int64 created_at = 4;
+}
+
+message UploadRequest {
+  string content = 1;
+}
+
+message UploadSummary {
+  int32 count = 1;
+  string status = 2;
+}
+
+message ChatRequest {
+  string query = 1;
+}
+
+message ChatResponse {
+  string reply = 1;
 }

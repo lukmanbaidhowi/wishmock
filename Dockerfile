@@ -18,8 +18,15 @@ COPY types ./types
 COPY protos ./protos
 COPY scripts/generate-descriptors.mjs ./scripts/generate-descriptors.mjs
 
-# Install protoc and bash for descriptor generation
-RUN apk add --no-cache protobuf bash
+# Install bash and dependencies for manually installing protoc (for version consistency)
+RUN apk add --no-cache bash curl unzip gcompat
+
+# Install protoc (official pre-compiled binary) to ensure version consistency with node.Dockerfile
+ARG TARGETARCH
+RUN PROTOC_ARCH=$(if [ "$TARGETARCH" = "amd64" ]; then echo "x86_64"; elif [ "$TARGETARCH" = "arm64" ]; then echo "aarch_64"; else echo "x86_64"; fi) \
+    && curl -LO "https://github.com/protocolbuffers/protobuf/releases/download/v25.1/protoc-25.1-linux-${PROTOC_ARCH}.zip" \
+    && unzip "protoc-25.1-linux-${PROTOC_ARCH}.zip" -d /usr/local \
+    && rm "protoc-25.1-linux-${PROTOC_ARCH}.zip"
 
 # Build server, frontend, and generate descriptors
 RUN bun run build && bun run descriptors:generate
@@ -54,8 +61,12 @@ COPY scripts/generate-descriptors.mjs ./scripts/generate-descriptors.mjs
 # Copy pre-generated descriptor set from builder
 COPY --from=builder /app/bin/.descriptors.bin ./bin/.descriptors.bin
 
-# Install protoc and bash for hot-reload descriptor regeneration
-RUN apk add --no-cache protobuf bash
+# Install bash and gcompat for running official protoc binary
+RUN apk add --no-cache bash gcompat
+
+# Copy protoc binary and standard include files from builder
+COPY --from=builder /usr/local/bin/protoc /usr/bin/protoc
+COPY --from=builder /usr/local/include/google /usr/include/google
 
 # Entrypoint to optionally run the MCP server via ENABLE_MCP=true
 COPY bin/entrypoint.sh ./bin/entrypoint.sh

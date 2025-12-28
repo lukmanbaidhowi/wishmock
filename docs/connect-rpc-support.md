@@ -484,14 +484,22 @@ match:
   request: {}
 responses:
   - when:
-      request.topic: "news"
+      request.topic: "notifications"
     stream_items:
-      - event: "Breaking news 1"
-        timestamp: "2024-01-01T00:00:00Z"
-      - event: "Breaking news 2"
-        timestamp: "2024-01-01T00:01:00Z"
-      - event: "Breaking news 3"
-        timestamp: "2024-01-01T00:02:00Z"
+      - event_id: "notif1"
+        event_type: "important"
+        data: '{"title":"Important Update","priority":"high"}'
+        created_at: 1701878400
+      - event_id: "notif2"
+        event_type: "urgent"
+        data: '{"title":"Urgent Action Required","priority":"critical"}'
+        created_at: 1701878401
+      - event_id: "notif3"
+        event_type: "important"
+        data: '{"title":"Security Alert","priority":"high"}'
+        created_at: 1701878402
+    stream_delay_ms: 1000
+    priority: 2
 ```
 
 ### Client Streaming
@@ -516,7 +524,7 @@ match:
   request: {}
 responses:
   - body:
-      count: 3
+      count: "{{request.count}}"
       status: "Received all messages"
 ```
 
@@ -580,26 +588,26 @@ Example: `helloworld.greeter.sayhello.yaml`
 ### Rule Structure
 
 ```yaml
-- when:
-    metadata:
-      authorization: "Bearer token123"
-    request:
-      name: "Alice"
-  response:
-    message: "Hello, Alice!"
-  priority: 10
+match:
+  request: {}
+responses:
+  - when:
+      metadata.authorization: "Bearer token123"
+      request.name: "Alice"
+    body:
+      message: "Hello, Alice!"
+    priority: 10
 
-- when:
-    request:
-      name:
-        $regex: "^B.*"
-  response:
-    message: "Hello, B-person!"
-  priority: 5
+  - when:
+      request.name:
+        regex: "^B.*"
+    body:
+      message: "Hello, B-person!"
+    priority: 5
 
-- response:
-    message: "Hello, stranger!"
-  priority: 1
+  - body:
+      message: "Hello, stranger!"
+    priority: 1
 ```
 
 ### Metadata Extraction
@@ -633,7 +641,7 @@ responses:
       results: [...]
 ```
 
-Operators: `$eq`, `$ne`, `$gt`, `$gte`, `$lt`, `$lte`, `$in`, `$nin`, `$regex`, `$exists`
+Operators: `eq`, `ne`, `gt`, `gte`, `lt`, `lte`, `in`, `regex`, `exists` (plus `not` for negation)
 
 See `README.md` for complete rule syntax.
 

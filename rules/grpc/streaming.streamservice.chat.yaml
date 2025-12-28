@@ -1,0 +1,6 @@
+match:
+  request: {}
+responses:
+  - stream_items:
+      - reply: "Hi there!"
+      - reply: "I'm doing great, thanks!"

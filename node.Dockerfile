@@ -8,9 +8,11 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y bash unzip curl
 
 # Install protoc (official pre-compiled binary) to avoid shared lib dependencies in distroless
-RUN curl -LO https://github.com/protocolbuffers/protobuf/releases/download/v25.1/protoc-25.1-linux-x86_64.zip \
-    && unzip protoc-25.1-linux-x86_64.zip -d /usr/local \
-    && rm protoc-25.1-linux-x86_64.zip
+ARG TARGETARCH
+RUN PROTOC_ARCH=$(if [ "$TARGETARCH" = "amd64" ]; then echo "x86_64"; elif [ "$TARGETARCH" = "arm64" ]; then echo "aarch_64"; else echo "x86_64"; fi) \
+    && curl -LO "https://github.com/protocolbuffers/protobuf/releases/download/v25.1/protoc-25.1-linux-${PROTOC_ARCH}.zip" \
+    && unzip "protoc-25.1-linux-${PROTOC_ARCH}.zip" -d /usr/local \
+    && rm "protoc-25.1-linux-${PROTOC_ARCH}.zip"
 
 COPY bun.lock package.json ./
 RUN bun install --frozen-lockfile

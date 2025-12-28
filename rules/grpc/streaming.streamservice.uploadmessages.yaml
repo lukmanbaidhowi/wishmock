@@ -1,0 +1,6 @@
+match:
+  request: {}
+responses:
+  - body:
+      count: "{{request.count}}"
+      status: "Received all messages"

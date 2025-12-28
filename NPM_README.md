@@ -28,7 +28,7 @@ Server runs on:
 
 1. Open `http://localhost:4319/app/`
 2. Upload your `.proto` file
-3. (Optional) Create rules in `rules/grpc/` for custom responses
+3. Create and upload rule file
    - Without rules, server returns empty `{}` with status OK
    - See Mock Rules section below for examples
 4. Start testing!
